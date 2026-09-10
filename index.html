@@ -1157,8 +1157,23 @@
 </div>
 
 <script>
+
+    function readStoredList(key) {
+        try { const value = JSON.parse(localStorage.getItem(key) || '[]');
+            return Array.isArray(value) ? value : [];
+        } catch (e) { console.warn('Unable to read stored list: ' + key, e); return []; }
+    }
+    function escapeHTML(value) { return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+    async function fetchWithTimeout(url, options = {}) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 8000);
+        try { const response = await fetch(url, {...options, signal: controller.signal});
+            if (!response.ok) throw new Error('Request failed: ' + response.status);
+            return response;
+        } finally { clearTimeout(timer); }
+    }
     // ========== System Log Initialization ==========
-    let systemLogs = JSON.parse(localStorage.getItem('system_logs') || '[]');
+    let systemLogs = readStoredList('system_logs');
     function addSystemLog(type, message, details) {
         let log = { id: Date.now(), date: new Date().toISOString(), type, message, details: details || '' };
         systemLogs.unshift(log);
@@ -1388,7 +1403,7 @@
     let currentGPSAccuracy = 0;
     
     // ========== BOOKING & SCHEDULE STATE MANAGEMENT ==========
-    let schedules = JSON.parse(localStorage.getItem('amt_schedules') || '[]');
+    let schedules = readStoredList('amt_schedules');
     let currentScheduleFilterTab = "all";
     
     function saveSchedules() {
@@ -1430,7 +1445,7 @@
             // Update battery level
             if (navigator.getBattery || navigator.battery) {
                 const battery = navigator.getBattery?.() || navigator.battery;
-                battery?.then(bat => {
+                Promise.resolve(battery).then(bat => {
                     const batteryEl = document.getElementById('ride-battery-level');
                     if (batteryEl) {
                         const percent = Math.round(bat.level * 100);
@@ -1472,7 +1487,8 @@
             localStorage.setItem('amt_ride_state', JSON.stringify({
                 isRideActive: true, startTime: sTime, totalMeters, lastLat, lastLon, currentMode, nightActive, startLocationAddress, currentLocationAddress, gpsReady: true, destinationAddress: currentDestinationAddress, trackingId: currentTrackingId,
                 deliveryPickupName, deliveryPickupPhone, deliveryDeliveryName, deliveryDeliveryPhone,
-                activeBookingId, activeBookingManualFare
+                activeBookingId, activeBookingManualFare,
+                form: Object.fromEntries(['mobile','wait-select','discount-input','manual-fare','start-loc','end-loc','pickup-name','pickup-phone','delivery-name','delivery-phone'].map(id => [id, document.getElementById(id).value]))
             }));
             broadcastOdometerTelemetry();
         } else {
@@ -1495,8 +1511,8 @@
             distanceTraveled: (totalMeters/1000).toFixed(2),
             mobile: document.getElementById('mobile').value || "N/A",
             wait: parseInt(document.getElementById('wait-select').value) || 0,
-            disc: parseInt(document.getElementById('discount-input').value) || 0,
-            manualFare: parseInt(document.getElementById('manual-fare').value) || 0,
+            disc: Math.max(0, parseFloat(document.getElementById('discount-input').value) || 0),
+            manualFare: Math.max(0, parseFloat(document.getElementById('manual-fare').value) || 0),
             nightUsed: nightActive,
             mode: currentMode === 'auto' ? "auto" : (currentMode === 'gps' ? "gps" : (currentMode === 'manual' ? "manual" : "delivery"))
         };
@@ -1511,7 +1527,7 @@
         }
 
         try {
-            await fetch(`https://ntfy.sh/amt_tracking_${currentTrackingId}`, {
+            await fetchWithTimeout(`https://ntfy.sh/amt_tracking_${currentTrackingId}`, {
                 method: 'POST',
                 body: JSON.stringify(payload)
             });
@@ -1539,7 +1555,9 @@
         if (!saved) return;
         try {
             let state = JSON.parse(saved);
+            if (!state.isRideActive || !Number.isFinite(Date.parse(state.startTime))) throw new Error('Invalid ride');
             sTime = new Date(state.startTime);
+            Object.entries(state.form || {}).forEach(([id, value]) => { const el = document.getElementById(id); if (el) el.value = value; });
             totalMeters = state.totalMeters || 0;
             lastLat = state.lastLat;
             lastLon = state.lastLon;
@@ -1560,6 +1578,8 @@
             gpsReady = true;
             
             setMode(currentMode);
+            startRideStatusMonitoring();
+            document.getElementById('active-ride-banner').classList.remove('hidden');
             let nightBtn = document.getElementById('nightBtn');
             if (nightActive) {
                 nightBtn.innerHTML = '🌙 NIGHT ON';
@@ -1598,36 +1618,20 @@
 
     // ========== STREAMING_CHUNK: Integrating Precise Geolocation Decoder Logic ==========
     function getSriLankaFallbackAddress(lat, lon) {
-        const hubs = [
-            { name: "Kirimandala Mawatha, Narahenpita, Colombo District, Western Province, 00500, Sri Lanka", lat: 6.9044, lon: 79.8813 },
-            { name: "Kottawa Road, Rukmalgama, Kottawa, Colombo District, Western Province, 10230, Sri Lanka", lat: 6.8415, lon: 79.9654 },
-            { name: "Galle Road, Bambalapitiya, Colombo, Western Province, 00400, Sri Lanka", lat: 6.8972, lon: 79.8553 },
-            { name: "Negombo Road, Kurana, Negombo, Gampaha District, Western Province, 11500, Sri Lanka", lat: 7.1896, lon: 79.8597 },
-            { name: "Peradeniya Road, Peradeniya, Kandy District, Central Province, 20400, Sri Lanka", lat: 7.2711, lon: 80.5921 },
-            { name: "Wackwella Road, Galle Fort, Galle District, Southern Province, 80000, Sri Lanka", lat: 6.0367, lon: 80.2170 },
-            { name: "Hospital Road, Jaffna, Northern Province, 40000, Sri Lanka", lat: 9.6615, lon: 80.0255 },
-            { name: "Central Road, Trincomalee, Eastern Province, 31000, Sri Lanka", lat: 8.5711, lon: 81.2335 },
-            { name: "Colombo Road, Kurunegala, North Western Province, 60000, Sri Lanka", lat: 7.4818, lon: 80.3609 },
-            { name: "New Town, Anuradhapura, North Central Province, 50000, Sri Lanka", lat: 8.3122, lon: 80.4131 }
-        ];
-        
-        let nearest = hubs[0];
-        let minDist = Infinity;
-        for (let h of hubs) {
-            let d = Math.hypot(h.lat - lat, h.lon - lon);
-            if (d < minDist) {
-                minDist = d;
-                nearest = h;
-            }
-        }
-        return nearest.name;
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return 'Location unavailable';
+        return `GPS: ${lat.toFixed(6)}, ${lon.toFixed(6)} (address unavailable)`;
     }
 
     // ========== GEOLOCATION LOGIC (GPS LOGIC) ==========
     function startGPS() {
-        if (!navigator.geolocation) return;
+        if (currentMode === 'manual' || sTime) return;
+        if (!navigator.geolocation) {
+            document.getElementById('gps-status').textContent = 'GPS unavailable — use Manual mode';
+            return;
+        }
         showLoading(true);
         navigator.geolocation.getCurrentPosition(pos => {
+            if (currentMode === 'manual' || sTime) { showLoading(false); return; }
             let acc = pos.coords.accuracy;
             lastLat = pos.coords.latitude;
             lastLon = pos.coords.longitude;
@@ -1650,17 +1654,19 @@
             }
         }, err => {
             showLoading(false);
+            if (currentMode === 'manual' || sTime) return;
             document.getElementById('gps-status').innerHTML = '❌ GPS Permissions Required';
             document.getElementById('startBtn').disabled = true;
             showToast('GPS Location Permissions Blocked', 'error');
-            setTimeout(startGPS, 5000);
+            if (err.code !== 1) setTimeout(startGPS, 5000);
         }, { enableHighAccuracy: true, timeout: 15000 });
     }
 
     function trackRide() {
-        if (watchId) navigator.geolocation.clearWatch(watchId);
+        if (currentMode === "manual" || !navigator.geolocation) return;
+        if (watchId !== null) navigator.geolocation.clearWatch(watchId);
         watchId = navigator.geolocation.watchPosition(pos => {
-            if (!sTime) return;
+            if (!sTime || rideEnding) return;
             
             let lat = pos.coords.latitude, 
                 lon = pos.coords.longitude, 
@@ -1683,6 +1689,8 @@
                     
                     if (distance >= MIN_DISTANCE && distance <= MAX_DISTANCE) {
                         totalMeters += distance;
+                        lastLat = lat;
+                        lastLon = lon;
                         lastUpdateTime = Date.now();
                         updateDisplay();
                         saveRideState();
@@ -1712,7 +1720,7 @@
     async function reverseGeocode(lat, lon) {
         if (!lat || !lon) return "Colombo, Sri Lanka";
         try {
-            let res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&accept-language=en&countrycodes=lk`, {
+            let res = await fetchWithTimeout(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&accept-language=en&countrycodes=lk`, {
                 headers: { "Accept-Language": "en" }
             });
             let data = await res.json();
@@ -1773,7 +1781,7 @@
             document.getElementById('delivery-accordion').style.display = 'none';
             document.getElementById('manual-controls').style.display = 'block';
             gpsReady = true;
-            if (watchId) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+            if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
             document.getElementById('startBtn').disabled = false;
             setupAutocomplete('start-loc', 'start-loc-suggestions');
             setupAutocomplete('end-loc', 'end-loc-suggestions');
@@ -1809,7 +1817,8 @@
     function setupAutocomplete(inputId, suggestionsId) {
         let input = document.getElementById(inputId);
         let div = document.getElementById(suggestionsId);
-        if (!input || !div) return;
+        if (!input || !div || input.dataset.autocompleteReady) return;
+        input.dataset.autocompleteReady = 'true';
         
         input.addEventListener('input', function() {
             let q = this.value.trim();
@@ -1817,6 +1826,8 @@
             clearTimeout(searchTimeout);
             searchTimeout = setTimeout(async () => {
                 let results = await searchSriLankaLocations(q);
+                if (input.value.trim() !== q) return;
+                if (!Array.isArray(results)) results = [];
                 div.innerHTML = '';
                 if (results.length === 0) {
                     div.innerHTML = '<div class="p-2 border-b border-slate-800 text-slate-400">No Sri Lanka Results found.</div>';
@@ -1942,9 +1953,9 @@
     }
 
     function calcFare() {
-        let manualFare = parseInt(document.getElementById('manual-fare').value) || 0,
-            disc = parseInt(document.getElementById('discount-input').value) || 0,
-            wait = parseInt(document.getElementById('wait-select').value),
+        let manualFare = Math.max(0, parseFloat(document.getElementById('manual-fare').value) || 0),
+            disc = Math.max(0, parseFloat(document.getElementById('discount-input').value) || 0),
+            wait = (parseInt(document.getElementById('wait-select').value) || 0),
             waitCharge = wait * SETTINGS.waitRate,
             km = totalMeters / 1000,
             total = manualFare > 0 ? manualFare + waitCharge - disc : SETTINGS.base + (Math.max(0, km - 1) * SETTINGS.rate) + waitCharge - disc;
@@ -1955,6 +1966,7 @@
 
     // ========== STREAMING_CHUNK: Managing Active Ride Start & End Sequences ==========
     async function startRide() {
+        if (pendingRideData) { openPaymentPopup(); return; }
         if(sTime) { showToast("Ride already active!", 'warning'); return; }
         
         if(currentMode === 'auto') { 
@@ -1996,16 +2008,6 @@
             totalMeters = 0;
             lastLat = null; 
             lastLon = null;
-            setTimeout(() => {
-                if(navigator.geolocation) {
-                    navigator.geolocation.getCurrentPosition(pos => {
-                        lastLat = pos.coords.latitude;
-                        lastLon = pos.coords.longitude;
-                        currentLat = pos.coords.latitude;
-                        currentLng = pos.coords.longitude;
-                    });
-                }
-            }, 100);
             trackRide();
             if (currentMode !== 'auto') document.getElementById('nav-container').classList.remove('hidden');
         } 
@@ -2079,15 +2081,19 @@
     }
 
     // ========== STREAMING_CHUNK: Processing Ride End, Payment Handshakes & Executing Schedules ==========
+    let rideEnding = false;
     async function endRide() { 
         if(!sTime) { showToast("ක්‍රියාකාරී ගමනක් නොමැත", 'warning'); return; } 
+        if (rideEnding) return;
+        rideEnding = true;
+        try {
         showLoading(true);
         closeDriverMapPopup();
         
         let finalLat = currentLat || lastLat;
         let finalLon = currentLng || lastLon;
         
-        if (navigator.geolocation) {
+        if (currentMode !== 'manual' && navigator.geolocation) {
             try {
                 const finalPos = await new Promise((resolve, reject) => {
                     navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 3000 });
@@ -2102,9 +2108,9 @@
         }
         
         let finalAddress = getSriLankaFallbackAddress(finalLat, finalLon);
-        if (finalLat && finalLon) {
+        if (currentMode !== 'manual' && finalLat && finalLon) {
             try {
-                let res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${finalLat}&lon=${finalLon}&accept-language=en&countrycodes=lk`, {
+                let res = await fetchWithTimeout(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${finalLat}&lon=${finalLon}&accept-language=en&countrycodes=lk`, {
                     headers: { "Accept-Language": "en" }
                 });
                 let data = await res.json();
@@ -2116,6 +2122,7 @@
             }
         }
         
+        if (currentMode === 'manual') finalAddress = currentDestinationAddress || document.getElementById('end-loc').value;
         let fare = calcFare(); 
         currentRID = generateReceiptID(); 
         let km = totalMeters / 1000; 
@@ -2136,8 +2143,8 @@
             to: finalAddress, 
             mobile: document.getElementById('mobile').value || "N/A", 
             wait: parseInt(document.getElementById('wait-select').value) || 0, 
-            disc: parseInt(document.getElementById('discount-input').value) || 0, 
-            manualFare: parseInt(document.getElementById('manual-fare').value) || 0, 
+            disc: Math.max(0, parseFloat(document.getElementById('discount-input').value) || 0), 
+            manualFare: Math.max(0, parseFloat(document.getElementById('manual-fare').value) || 0), 
             nightUsed: nightActive, 
             mode: activeBookingId ? "Booked Ride" : (currentMode === 'auto' ? "Auto" : (currentMode === 'gps' ? "GPS" : (currentMode === 'manual' ? "Manual" : "Delivery"))), 
             time: Date.now(),
@@ -2152,6 +2159,7 @@
             pendingRideData.deliveryPhone = deliveryDeliveryPhone; 
         } 
         
+        localStorage.setItem('amt_pending_payment', JSON.stringify(pendingRideData));
         await broadcastOdometerTelemetry('completed');
         
         // Mark Schedule Booking executed in Database
@@ -2169,11 +2177,15 @@
         stopTrackingUpdates();
         
         showLoading(false);
-        openPaymentPopup(); 
+        openPaymentPopup();
+        } catch (e) {
+            showToast('Unable to finish ride. Please retry: ' + e.message, 'error');
+        } finally { rideEnding = false; showLoading(false); }
     }
 
     function resetDriverAppOnly() {
-        if(watchId) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+        stopTrackingUpdates();
+        if(watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
         releaseWakeLock();
         stopRideStatusMonitoring();
         document.body.classList.remove('ride-active');
@@ -2250,7 +2262,7 @@
     function selectPaymentMethod(method) { 
         selectedMethod = method; 
         document.querySelectorAll('.payment-method-btn').forEach(btn => btn.classList.remove('bg-blue-600', 'border-transparent')); 
-        const selectedBtn = event.currentTarget;
+        const selectedBtn = document.querySelector(`.payment-method-btn[data-method="${method}"]`);
         if(selectedBtn) selectedBtn.classList.add('bg-blue-600', 'border-transparent');
         document.getElementById('cash-fields').style.display = 'none'; 
         document.getElementById('card-fields').style.display = 'none'; 
@@ -2269,7 +2281,7 @@
             case 'cash': return { method: 'Cash', detail: '' }; 
             case 'card': let cd = ""; if(document.getElementById('card-number')?.value) cd += `****${document.getElementById('card-number').value}`; if(document.getElementById('card-name')?.value) cd += ` - ${document.getElementById('card-name').value}`; return { method: 'Card', detail: cd || 'Card payment' }; 
             case 'mobile': let md = ""; if(document.getElementById('mobile-provider')?.value) md += document.getElementById('mobile-provider').value; if(document.getElementById('mobile-number')?.value) md += ` ${document.getElementById('mobile-number').value}`; return { method: 'Mobile', detail: md || 'Mobile payment' }; 
-            case 'bank': let bd = ""; if(document.getElementById('bank-name')?.value) md += document.getElementById('bank-name').value; if(document.getElementById('bank-ref')?.value) bd += ` - Ref: ${document.getElementById('bank-ref').value}`; return { method: 'Bank Transfer', detail: bd || 'Bank transfer' }; 
+            case 'bank': let bd = ""; if(document.getElementById('bank-name')?.value) bd += document.getElementById('bank-name').value; if(document.getElementById('bank-ref')?.value) bd += ` - Ref: ${document.getElementById('bank-ref').value}`; return { method: 'Bank Transfer', detail: bd || 'Bank transfer' }; 
             default: return { method: document.getElementById('other-method')?.value || 'Other', detail: document.getElementById('other-ref')?.value || '' }; 
         } 
     }
@@ -2285,11 +2297,12 @@
         let paymentInfo = getPaymentInfo(); 
         pendingRideData.payment = paymentInfo; 
         
-        let list = JSON.parse(localStorage.getItem('rides') || '[]'); 
-        list.push(pendingRideData); 
+        let list = readStoredList('rides'); 
+        if (!list.some(ride => ride.id === pendingRideData.id)) list.push(pendingRideData); 
         localStorage.setItem('rides', JSON.stringify(list)); 
         
-        triggerRollingBackup();
+        try { triggerRollingBackup(); } catch (e) { showToast('Payment saved; backup storage is full.', 'warning'); }
+        localStorage.removeItem('amt_pending_payment');
         
         closePaymentPopup(); 
         showReceipt(pendingRideData, false); 
@@ -2526,7 +2539,7 @@
     
     async function reverseGeocodePicker(lat, lon) {
         try {
-            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&accept-language=en&countrycodes=lk`);
+            const res = await fetchWithTimeout(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&accept-language=en&countrycodes=lk`);
             const data = await res.json();
             return data.display_name || getSriLankaFallbackAddress(lat, lon);
         } catch(e) {
@@ -2893,7 +2906,7 @@
 
     // ========== STREAMING_CHUNK: Ride History Realizations with Scheduled Flag Outputs ==========
     function filterHistory(filter) {
-        const rides = JSON.parse(localStorage.getItem('rides') || '[]');
+        const rides = readStoredList('rides');
         const list = document.getElementById('history-list');
         if (!list) return;
 
@@ -2949,7 +2962,7 @@
 
     function showReportTab(tab) {
         currentReportType = tab;
-        const rides = JSON.parse(localStorage.getItem('rides') || '[]');
+        const rides = readStoredList('rides');
         const container = document.getElementById('report-container');
         if (!container) return;
 
@@ -2996,7 +3009,7 @@
     }
 
     function loadEarningsChart() {
-        const rides = JSON.parse(localStorage.getItem('rides') || '[]');
+        const rides = readStoredList('rides');
         const ctx = document.getElementById('earningsChart')?.getContext('2d');
         if (!ctx) return;
 
@@ -3044,7 +3057,7 @@
     }
 
     function downloadCSV() {
-        const rides = JSON.parse(localStorage.getItem('rides') || '[]');
+        const rides = readStoredList('rides');
         let csv = "ID,Date,Fare,Distance,Mode,Payment\n" + rides.map(r => `"${r.id}","${new Date(r.time).toLocaleDateString()}","${r.fare}","${r.km.toFixed(2)}","${r.mode}","${r.payment ? r.payment.method : 'Cash'}"`).join("\n");
         let a = document.createElement('a');
         a.href = URL.createObjectURL(new Blob([csv], {type: 'text/csv'}));
@@ -3054,7 +3067,7 @@
     }
 
     // ========== Fuel registries log features ==========
-    let fuelLogs = JSON.parse(localStorage.getItem('fuel_logs') || '[]');
+    let fuelLogs = readStoredList('fuel_logs');
     
     function openFuelLogModal() {
         closeM('settings-modal');
@@ -3123,7 +3136,7 @@
     }
 
     // ========== Repair Servicing Record Log features ==========
-    let repairLogs = JSON.parse(localStorage.getItem('repair_logs') || '[]');
+    let repairLogs = readStoredList('repair_logs');
     
     function openRepairLogModal() {
         closeM('settings-modal');
@@ -3257,7 +3270,7 @@
     }
     
     function updateProfitReport() {
-        const rides = JSON.parse(localStorage.getItem('rides') || '[]');
+        const rides = readStoredList('rides');
         const totalRevenue = rides.reduce((acc,curr) => acc + (parseFloat(curr.fare) || 0), 0);
         const totalFuel = fuelLogs.reduce((acc,curr) => acc + curr.total, 0);
         const totalRepairs = repairLogs.reduce((acc,curr) => acc + curr.cost, 0);
@@ -3299,15 +3312,15 @@
     }
 
     // ========== Local Dynamic Backups Engine ==========
-    let localBackups = JSON.parse(localStorage.getItem('local_backups') || '[]');
+    let localBackups = readStoredList('local_backups');
     
     function triggerRollingBackup() {
         const backup = {
             id: Date.now(),
             date: new Date().toISOString(),
-            rides: JSON.parse(localStorage.getItem('rides') || '[]'),
-            fuel: JSON.parse(localStorage.getItem('fuel_logs') || '[]'),
-            repairs: JSON.parse(localStorage.getItem('repair_logs') || '[]'),
+            rides: readStoredList('rides'),
+            fuel: readStoredList('fuel_logs'),
+            repairs: readStoredList('repair_logs'),
             settings: SETTINGS,
             schedules: schedules
         };
@@ -3335,6 +3348,7 @@
     }
     
     function restoreFromLocalBackup(id) {
+        if (sTime || pendingRideData) { showToast('Finish the current ride and payment before restoring.', 'warning'); return; }
         const backup = localBackups.find(b => b.id === id);
         if (backup && confirm("මෙම Backup එක නැවත පිහිටුවීමට අවශ්‍ය බව ස්ථිරද?")) {
             localStorage.setItem('rides', JSON.stringify(backup.rides || []));
@@ -3352,9 +3366,9 @@
     
     function downloadSystemBackupFile() {
         const backup = {
-            rides: JSON.parse(localStorage.getItem('rides') || '[]'),
-            fuel: JSON.parse(localStorage.getItem('fuel_logs') || '[]'),
-            repairs: JSON.parse(localStorage.getItem('repair_logs') || '[]'),
+            rides: readStoredList('rides'),
+            fuel: readStoredList('fuel_logs'),
+            repairs: readStoredList('repair_logs'),
             settings: SETTINGS,
             schedules: schedules
         };
@@ -3378,7 +3392,9 @@
         reader.onload = function(e) {
             try {
                 const data = JSON.parse(e.target.result);
-                if (data.rides && data.fuel && data.repairs && data.settings) {
+                if (Array.isArray(data.rides) && Array.isArray(data.fuel) && Array.isArray(data.repairs) && data.settings && typeof data.settings === 'object' && !Array.isArray(data.settings) && (!data.schedules || Array.isArray(data.schedules))) {
+                    if (sTime || pendingRideData) { showToast('Finish the current ride and payment before restoring.', 'warning'); return; }
+                    if (!confirm('Replace current records with this backup?')) return;
                     localStorage.setItem('rides', JSON.stringify(data.rides));
                     localStorage.setItem('fuel_logs', JSON.stringify(data.fuel));
                     localStorage.setItem('repair_logs', JSON.stringify(data.repairs));
@@ -3406,9 +3422,10 @@
 
     // ========== STREAMING_CHUNK: Bootup Sequence initialization ==========
     window.onload = function () {
+        if (trackingQuery) return;
         const savedSettings = localStorage.getItem('settings');
         if (savedSettings) {
-            try { SETTINGS = JSON.parse(savedSettings); } catch(e){}
+            try { SETTINGS = { ...SETTINGS, ...JSON.parse(savedSettings) }; } catch(e){}
         }
         
         document.getElementById('set-app-name').value = SETTINGS.appName;
@@ -3418,7 +3435,7 @@
         document.getElementById('set-wait').value = SETTINGS.waitRate;
         document.getElementById('set-night').value = SETTINGS.nightPercent;
         document.getElementById('set-pwd').value = SETTINGS.password;
-        document.getElementById('display-app-name').innerHTML = SETTINGS.appName.replace(" ", "<br>");
+        document.getElementById('display-app-name').innerHTML = escapeHTML(SETTINGS.appName).replace(" ", "<br>");
         
         const autoBackupCheck = document.getElementById('auto-backup-toggle');
         if (autoBackupCheck) {
@@ -3430,6 +3447,12 @@
         
         // Default execution mode
         setMode('auto');
+        loadRideState();
+        try { pendingRideData = JSON.parse(localStorage.getItem('amt_pending_payment') || 'null'); } catch(e) {}
+        if (pendingRideData) openPaymentPopup();
+        document.querySelectorAll('input, select').forEach(el => el.addEventListener('change', saveRideState));
+        window.addEventListener('pagehide', saveRideState);
+        setInterval(checkScheduleReminders, 30000);
         
         if ('Notification' in window && Notification.permission === 'default') {
             Notification.requestPermission();
@@ -3437,7 +3460,7 @@
     };
 
     // ========== HELPER ROUTINES ==========
-    function generateTrackingId() { return Math.random().toString(36).substring(2, 8).toUpperCase(); }
+    function generateTrackingId() { return Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join(''); }
     function closeM(id) { document.getElementById(id).style.display = 'none'; }
     function openLogin() { document.getElementById('login-modal').style.display = 'flex'; }
     function checkLogin() {
@@ -3461,19 +3484,24 @@
     }
     
     function saveSettings() {
+        if (['set-base','set-rate','set-wait','set-night'].some(id => {
+            const val = document.getElementById(id).value;
+            return val.trim() === '' || !Number.isFinite(Number(val)) || Number(val) < 0;
+        })) { showToast('Enter valid non-negative rates.', 'error'); return; }
         SETTINGS.appName = document.getElementById('set-app-name').value.trim() || SETTINGS.appName;
         SETTINGS.receiptName = document.getElementById('set-receipt-header').value.trim() || SETTINGS.receiptName;
-        SETTINGS.base = parseFloat(document.getElementById('set-base').value) || SETTINGS.base;
-        SETTINGS.rate = parseFloat(document.getElementById('set-rate').value) || SETTINGS.rate;
-        SETTINGS.waitRate = parseFloat(document.getElementById('set-wait').value) || SETTINGS.waitRate;
-        SETTINGS.nightPercent = parseFloat(document.getElementById('set-night').value) || SETTINGS.nightPercent;
+        SETTINGS.base = Number(document.getElementById('set-base').value);
+        SETTINGS.rate = Number(document.getElementById('set-rate').value);
+        SETTINGS.waitRate = Number(document.getElementById('set-wait').value);
+        SETTINGS.nightPercent = Number(document.getElementById('set-night').value);
         SETTINGS.password = document.getElementById('set-pwd').value || SETTINGS.password;
         
         localStorage.setItem('settings', JSON.stringify(SETTINGS));
-        document.getElementById('display-app-name').innerHTML = SETTINGS.appName.replace(" ", "<br>");
+        document.getElementById('display-app-name').innerHTML = escapeHTML(SETTINGS.appName).replace(" ", "<br>");
         
         closeM('app-settings-modal');
         document.getElementById('settings-modal').style.display = 'flex';
+        updateDisplay();
         showToast("Configs updated!", "success");
     }
 
@@ -3511,13 +3539,13 @@
     }
     
     function manualKmInputChanged() {
-        const kmVal = parseFloat(document.getElementById('manual-km-input').value) || 0;
+        const kmVal = Math.max(0, parseFloat(document.getElementById('manual-km-input').value) || 0);
         totalMeters = kmVal * 1000;
         updateDisplay();
     }
     
     function setManualDistance() {
-        const kmVal = parseFloat(document.getElementById('manual-km-input').value) || 0;
+        const kmVal = Math.max(0, parseFloat(document.getElementById('manual-km-input').value) || 0);
         totalMeters = kmVal * 1000;
         updateDisplay();
         saveRideState();
@@ -3527,7 +3555,7 @@
     // Autocomplete Osm Fallbacks
     async function searchSriLankaLocations(query) {
         try {
-            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query + ', Sri Lanka')}&accept-language=en&countrycodes=lk`, {
+            const res = await fetchWithTimeout(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query + ', Sri Lanka')}&accept-language=en&countrycodes=lk`, {
                 headers: { "Accept-Language": "en" }
             });
             return await res.json();
@@ -3559,7 +3587,7 @@
             const qrContainer = document.getElementById(containerId);
             if (qrContainer) {
                 qrContainer.innerHTML = '';
-                new QRCode(qrContainer, {
+                if (typeof QRCode !== 'undefined') new QRCode(qrContainer, {
                     text: `https://advancemeetertaxi.com/verify?ride=${ride.id}&fare=${ride.fare}`,
                     width: 76,
                     height: 76,
@@ -3633,7 +3661,7 @@
         
         const qrContainer = document.getElementById('trackingQR');
         qrContainer.innerHTML = '';
-        new QRCode(qrContainer, {
+        if (typeof QRCode !== 'undefined') new QRCode(qrContainer, {
             text: link,
             width: 128,
             height: 128
@@ -3666,7 +3694,7 @@
 
     function sendNotification(title, body) {
         if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification(title, { body, icon: 'https://placehold.co/128x128/0f172a/2563eb?text=🚕' });
+            try { new Notification(title, { body, icon: 'https://placehold.co/128x128/0f172a/2563eb?text=🚕' }); } catch (e) { console.warn('Notification unavailable', e); }
         }
     }
 
