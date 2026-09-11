@@ -32,6 +32,21 @@ test('Worker with real SQLite: authorization, transactions and data validation',
   assert.equal((await call('/api/health',{headers:{Origin:'https://evil.example'}})).status,403);
   const r=await call('/api/state',{method:'OPTIONS'});assert.equal(r.status,204);assert.equal(r.headers.get('Access-Control-Allow-Origin'),ORIGIN);
  });
+ await t.test('setup form preserves same-origin POST identity and rejects untrusted origins',async()=>{
+  const page=await worker.fetch(new Request(BASE+'/setup'),env);
+  assert.equal(page.status,200);
+  assert.equal(page.headers.get('Referrer-Policy'),'same-origin');
+  assert.match(page.headers.get('Content-Security-Policy'),/form-action 'self'/);
+  assert.equal(page.headers.get('Cache-Control'),'no-store');
+  for(const origin of ['null','https://evil.example',ORIGIN,'']){
+   const response=await worker.fetch(new Request(BASE+'/setup',{
+    method:'POST',headers:{...(origin?{Origin:origin}:{}),'Content-Type':'application/x-www-form-urlencoded'},
+    body:new URLSearchParams({setupToken:SETUP,username:'intruder'})
+   }),env);
+   assert.equal(response.status,403);
+  }
+  assert.equal(DB.sqlite.prepare('SELECT count(*) AS n FROM users').get().n,0);
+ });
  await t.test('setup requires secret, creates hashed admin, then closes',async()=>{
   assert.equal((await setup(env,'wrong')).status,403);const created=await setup(env);assert.equal(created.status,201);adminKey=(await created.text()).match(/<code>([a-f0-9]{64})<\/code>/)[1];
   assert.notEqual(DB.sqlite.prepare('SELECT password FROM users').get().password,adminKey);

@@ -54,3 +54,11 @@ Official references (checked 2026-09-11):
 - https://developers.cloudflare.com/workers/platform/limits/
 - https://developers.cloudflare.com/d1/platform/limits/
 - https://developers.cloudflare.com/d1/platform/pricing/
+
+## Setup form Origin fix
+
+The original HTML response inherited `Referrer-Policy: no-referrer`. Native form POST navigation can consequently send `Origin: null`, which the exact-origin guard correctly rejects. Setup HTML now uses `Referrer-Policy: same-origin`; API JSON retains `no-referrer`. Neither null-origin requests nor foreign-origin setup requests are accepted.
+
+After deploying the corrected Worker, open `/setup` in a fresh top-level tab (do not resubmit the old error page or use the dashboard preview). This reloads the form with the corrected policy. Keep the existing setup secret and database. The added regression checks the form policy and rejects null, foreign, frontend-origin and absent-origin setup submissions before account creation. The Worker suite passes 16 reported tests (15 individual checks plus its parent test), using the local SQLite adapter; actual browser completion remains to be confirmed.
+
+Reference: https://fetch.spec.whatwg.org/#append-a-request-origin-header

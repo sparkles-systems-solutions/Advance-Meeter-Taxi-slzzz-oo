@@ -68,7 +68,9 @@ export default {
   const url=new URL(request.url),path=url.pathname,method=request.method;
   const headers={'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','X-Frame-Options':'DENY','Strict-Transport-Security':'max-age=31536000','Vary':'Origin'};
   const send=(status,data)=>new Response(JSON.stringify(data),{status,headers});
-  const html=(status,text)=>new Response(text,{status,headers:{...headers,'Content-Type':'text/html; charset=utf-8','Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"}});
+  // Native form POSTs with no-referrer send Origin: null (Fetch Standard).
+  // Preserve the setup form's same-origin identity; keep exact Origin checks.
+  const html=(status,text)=>new Response(text,{status,headers:{...headers,'Referrer-Policy':'same-origin','Content-Type':'text/html; charset=utf-8','Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"}});
   try {
    const origin=request.headers.get('Origin');
    if(origin && origin!==ORIGIN && !(path==='/setup'&&origin===url.origin))fail(403,'Origin not allowed');
