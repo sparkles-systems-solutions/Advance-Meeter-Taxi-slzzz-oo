@@ -1,4 +1,6 @@
-# Deployment and migration
+# Node deployment and migration
+
+For the no-budget Cloudflare deployment, use [CLOUDFLARE.md](CLOUDFLARE.md). The instructions below are for the alternative Node server only.
 
 ## Keep the existing GitHub Pages address
 

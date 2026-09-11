@@ -1,3 +1,7 @@
+# Backend variants
+
+The Cloudflare variant uses generated 256-bit login keys (SHA-256 hashes), three D1 snapshots, and a 750,000-byte state limit. See [CLOUDFLARE.md](CLOUDFLARE.md) for its setup and remaining release gates. Password/scrypt, filesystem administration and five-snapshot descriptions below apply to the Node variant. Neither variant has completed deployed mobile acceptance testing.
+
 # Security review
 
 ## Controls implemented

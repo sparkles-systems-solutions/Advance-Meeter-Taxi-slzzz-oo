@@ -20,6 +20,8 @@ window.cloudStore = (() => {
  function schedule(){dirty++;status('Unsaved changes');clearTimeout(timer);timer=setTimeout(()=>flush().catch(()=>{}),700);}
  function exportUnsaved(){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(values,null,2)],{type:'application/json'}));a.download='taxi-unsaved-state.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
  async function connect(){
+  const credentialLabel=document.querySelector('label[for="account-password"]');
+  if(credentialLabel)credentialLabel.textContent=window.AMT_CONFIG?.credentialLabel||'Password';
   document.getElementById('account-gate').hidden=false;
   document.getElementById('main-driver-view').hidden=true;
   return new Promise(resolve=>{
