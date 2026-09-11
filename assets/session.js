@@ -2,7 +2,11 @@
 window.cloudStore = (() => {
  let values={},version=0,token='',user=null,dirty=0,saved=0,flight=null,timer=null,blocked=false;
  const base=(window.AMT_CONFIG?.apiBase||'').replace(/\/$/,'');
- const status=text=>{document.getElementById('sync-status').textContent=text;};
+ const status=text=>{
+  document.getElementById('sync-status').textContent=text;
+  const warning=document.getElementById('sync-warning');
+  if(warning){warning.hidden=text==='Saved to server';warning.textContent=warning.hidden?'':text+' — Settings → Account & cloud sync';}
+ };
  async function request(path,options={}) {
   if(base && !base.startsWith('https://') && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(base))throw Error('Backend URL must use HTTPS');
   const response=await fetch(base+'/api'+path,{...options,cache:'no-store',signal:AbortSignal.timeout(15000),headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{}),...options.headers}});
@@ -39,5 +43,5 @@ window.cloudStore = (() => {
  async function logout(){try{await flush();await request('/logout',{method:'POST',body:'{}'});token='';values={};location.reload();}catch(e){status(e.message);}}
  window.addEventListener('beforeunload',e=>{if(dirty!==saved){e.preventDefault();e.returnValue='';}});
  window.addEventListener('online',()=>flush().catch(()=>{}));
- return {connect,request,flush,logout,exportUnsaved,get user(){return user;},getItem:key=>values[key]??null,setItem(key,value){values[key]=String(value);schedule();},removeItem(key){if(key in values){delete values[key];schedule();}},get dirty(){return dirty!==saved;}};
+ return {connect,request,flush,logout,exportUnsaved,reportStatus:status,get user(){return user;},getItem:key=>values[key]??null,setItem(key,value){values[key]=String(value);schedule();},removeItem(key){if(key in values){delete values[key];schedule();}},get dirty(){return dirty!==saved;}};
 })();

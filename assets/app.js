@@ -1,4 +1,4 @@
-let paymentSaving=false;
+let paymentSaving=false, settingsSaving=false;
 
 
     function readStoredList(key) {
@@ -308,7 +308,7 @@ let paymentSaving=false;
             cloudStore.setItem('amt_ride_state', JSON.stringify({
                 isRideActive: true, startTime: sTime, totalMeters, lastLat, lastLon, currentMode, nightActive, startLocationAddress, currentLocationAddress, gpsReady: true, destinationAddress: currentDestinationAddress, trackingId: currentTrackingId,
                 deliveryPickupName, deliveryPickupPhone, deliveryDeliveryName, deliveryDeliveryPhone,
-                activeBookingId, activeBookingManualFare,
+                activeBookingId, activeBookingManualFare, sharingEnabled:document.getElementById('share-location').checked, trackingShareToken,
                 form: Object.fromEntries(['mobile','wait-select','discount-input','manual-fare','start-loc','end-loc','pickup-name','pickup-phone','delivery-name','delivery-phone'].map(id => [id, document.getElementById(id).value]))
             }));
             broadcastOdometerTelemetry();
@@ -319,7 +319,7 @@ let paymentSaving=false;
     async function broadcastOdometerTelemetry(forceStatus='active') {
         if (!trackingShareToken || !Number.isFinite(currentLat) || !Number.isFinite(currentLng)) return;
         try { await cloudStore.request('/track/'+trackingShareToken,{method:'PUT',body:JSON.stringify({lat:currentLat,lng:currentLng,currentFare:calcFare(),distanceTraveled:(totalMeters/1000).toFixed(2),status:forceStatus,mode:currentMode})}); }
-        catch(e) { document.getElementById('sync-status').textContent='Tracking update failed: '+e.message; }
+        catch(e) { cloudStore.reportStatus('Tracking update failed: '+e.message); }
     }
 
     function loadRideState() {
@@ -356,6 +356,8 @@ let paymentSaving=false;
             currentLocationAddress = state.currentLocationAddress || "";
             currentDestinationAddress = state.destinationAddress || "";
             currentTrackingId = state.trackingId || null;
+            trackingShareToken = state.sharingEnabled && /^[a-f0-9]{64}$/.test(state.trackingShareToken||'') ? state.trackingShareToken : null;
+            document.getElementById('share-location').checked = Boolean(trackingShareToken);
             deliveryPickupName = state.deliveryPickupName || "";
             deliveryPickupPhone = state.deliveryPickupPhone || "";
             deliveryDeliveryName = state.deliveryDeliveryName || "";
@@ -1124,7 +1126,7 @@ let paymentSaving=false;
         const ride = { ...pendingRideData, payment: getPaymentInfo() };
         const list = readStoredList('rides');
         if (!list.some(r => r.id === ride.id)) list.push(ride);
-        try { cloudStore.setItem('rides', JSON.stringify(list)); await cloudStore.flush(); }
+        try { cloudStore.setItem('rides', JSON.stringify(list)); cloudStore.removeItem('amt_pending_payment'); await cloudStore.flush(); }
         catch(e) { showToast('Payment is not saved to the server. Check connection / sync status and retry.', 'error'); return; }
         pendingRideData = null;
         cloudStore.removeItem('amt_pending_payment');
@@ -2273,13 +2275,18 @@ let paymentSaving=false;
         document.getElementById('db-backup-modal').style.display = 'flex';
     }
     
-    function saveSettings() {
+    async function saveSettings() {
+        if(settingsSaving)return;
         if(cloudStore.user?.role!=='admin'){showToast('Only an administrator may change tariffs.','warning');return;}
         if (sTime || pendingRideData) { showToast("Finish the ride and payment before changing tariffs.", "warning"); return; }
         if (['set-base','set-rate','set-wait','set-night'].some(id => {
             const val = document.getElementById(id).value;
-            return val.trim() === '' || !Number.isFinite(Number(val)) || Number(val) < 0;
+            return val.trim() === '' || !Number.isFinite(Number(val)) || Number(val) < 0 || Number(val)>1000000;
         })) { showToast('Enter valid non-negative rates.', 'error'); return; }
+        if(['set-app-name','set-receipt-header'].some(id=>document.getElementById(id).value.trim().length>120)){showToast('Names must be 120 characters or fewer.','error');return;}
+        settingsSaving=true;
+        document.getElementById('save-settings-button').disabled=true;
+        try {
         SETTINGS.appName = document.getElementById('set-app-name').value.trim() || SETTINGS.appName;
         SETTINGS.receiptName = document.getElementById('set-receipt-header').value.trim() || SETTINGS.receiptName;
         SETTINGS.base = Number(document.getElementById('set-base').value);
@@ -2289,12 +2296,15 @@ let paymentSaving=false;
 
         
         cloudStore.setItem('settings', JSON.stringify(SETTINGS));
+        await cloudStore.flush();
         document.getElementById('display-app-name').innerHTML = escapeHTML(SETTINGS.appName).replace(" ", "<br>");
         
         closeM('app-settings-modal');
         document.getElementById('settings-modal').style.display = 'flex';
         updateDisplay();
         showToast("Configs updated!", "success");
+        } catch(e) {showToast('Configurations are not saved: '+e.message,'error');}
+        finally {settingsSaving=false;document.getElementById('save-settings-button').disabled=false;}
     }
 
     function toggleAccordion(id) {
@@ -2456,6 +2466,7 @@ let paymentSaving=false;
             document.getElementById('trackingLinkDisplay').textContent=url.href;
             const qr=document.getElementById('trackingQR');qr.innerHTML='';
             if(typeof QRCode!=='undefined') new QRCode(qr,{text:url.href,width:128,height:128});
+            closeM('settings-modal');
             document.getElementById('trackingPopupModal').style.display='flex';
         } catch(e) { showToast('Could not create a tracking link: '+e.message,'error'); }
     }
@@ -2492,6 +2503,7 @@ let paymentSaving=false;
     const urlParams = new URLSearchParams(window.location.search);
     const trackingQuery = urlParams.get('track');
     if (trackingQuery) {
+        document.getElementById('account-gate').hidden=true;
         document.getElementById('main-driver-view').classList.add('hidden');
         document.getElementById('passenger-tracking-view').classList.remove('hidden');
         document.getElementById('track-trip-id').innerText = trackingQuery;
@@ -2534,6 +2546,7 @@ let paymentSaving=false;
                 document.getElementById('track-destination').textContent='Address hidden';
                 document.getElementById('track-est-fare').textContent='LKR '+payload.currentFare.toFixed(2);
                 document.getElementById('track-est-distance').textContent=payload.distanceTraveled+' km';
+                document.getElementById('track-ride-mode').textContent=String(payload.mode||'ride').toUpperCase()+' Mode';
                 document.getElementById('track-last-update').textContent=new Date(payload.timestamp).toLocaleTimeString();
                 document.getElementById('track-status').textContent=payload.status==='completed'?'Trip completed':'Live ride';
                 if(payload.status==='completed'){stopped=true;document.getElementById('passenger-pdf-btn').classList.remove('hidden');}
@@ -2732,6 +2745,7 @@ let paymentSaving=false;
 
     let trackingShareToken=null;
     async function changeLocationSharing(){
-        if(document.getElementById('share-location').checked){if(sTime)await showTrackingPopup();return;}
+        if(document.getElementById('share-location').checked){if(sTime)await showTrackingPopup();saveRideState();return;}
         if(trackingShareToken){try{await cloudStore.request('/track/'+trackingShareToken,{method:'DELETE'});trackingShareToken=null;showToast('Tracking link revoked.','success');}catch(e){document.getElementById('share-location').checked=true;showToast('Could not revoke the link. Retry when connected.','error');}}
+        saveRideState();
     }

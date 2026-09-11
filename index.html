@@ -27,22 +27,19 @@
     <!-- Google Fonts for premium typography -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Share+Tech+Mono&display=swap" rel="stylesheet">
     
-    <link rel="stylesheet" href="assets/app.css">
+    <link rel="stylesheet" href="assets/app.css?v=mobile-qa-20260911">
 </head>
 <body class="min-h-screen text-slate-100 flex items-center justify-center p-2 sm:p-4">
 
-<section id="account-gate" class="account-gate" hidden>
+<section id="account-gate" class="account-gate">
  <form id="account-form"><h1>Advance Meeter Taxi</h1><p>ඔබගේ account එකට ඇතුළු වන්න.</p>
  <label for="account-user">Username</label><input id="account-user" autocomplete="username" required>
  <label for="account-password">Password</label><input id="account-password" type="password" autocomplete="current-password" required>
  <button id="account-submit" type="submit">Sign in</button><p id="account-error" role="alert"></p></form></section>
-<div id="main-driver-view" class="w-full max-w-md bg-slate-900/95 border border-slate-800/80 rounded-[28px] sm:rounded-[32px] shadow-2xl p-4 sm:p-5 relative transition-all duration-300">
+<div id="main-driver-view" hidden class="w-full max-w-md bg-slate-900/95 border border-slate-800/80 rounded-[28px] sm:rounded-[32px] shadow-2xl p-4 sm:p-5 relative transition-all duration-300">
     
     <button id="pending-payment-banner" class="hidden w-full mb-3 p-3 rounded-xl bg-amber-600 text-white font-bold" onclick="openPaymentPopup()">💳 අවසන් ගමනේ ගෙවීම සම්පූර්ණ කරන්න (Resume payment)</button>
-    <div class="account-toolbar"><span id="account-name"></span><button onclick="cloudStore.logout()">Sign out</button></div>
-    <div id="sync-status" role="status">Waiting for sign-in</div>
-    <div class="account-toolbar"><button onclick="cloudStore.flush().catch(e=>showToast(e.message,'error'))">Retry save</button><button onclick="cloudStore.exportUnsaved()">Export unsaved data</button></div>
-    <div class="share-controls"><label><input id="share-location" type="checkbox" onchange="changeLocationSharing()"> Share live location by link</label><button onclick="showTrackingPopup()">View / share link</button></div>
+    <p id="sync-warning" class="sync-warning" role="alert" hidden></p>
     <!-- Sticky Recovery Banner -->
     <div id="restore-banner" class="hidden bg-amber-500/20 border border-amber-500/30 text-amber-300 text-center text-xs py-2.5 px-3 rounded-xl mb-3.5 font-bold cursor-pointer transition hover:bg-amber-500/30" onclick="restorePreviousRide()">
         🔄 කලින් ගිය ගමනක් හමු විය! යළි පිහිටුවන්න ක්ලික් කරන්න
@@ -593,6 +590,14 @@
         </div>
         
         <div class="space-y-4">
+            <section id="account-settings" class="account-settings" aria-labelledby="account-settings-title">
+                <h4 id="account-settings-title">Account &amp; cloud sync</h4>
+                <div class="account-toolbar"><span id="account-name"></span><button type="button" onclick="cloudStore.logout()">Sign out</button></div>
+                <p id="sync-status" role="status">Waiting for sign-in</p>
+                <div class="account-toolbar"><button type="button" onclick="cloudStore.flush().catch(e=>showToast(e.message,'error'))">Retry save</button><button type="button" onclick="cloudStore.exportUnsaved()">Export unsaved data</button></div>
+                <div class="share-controls"><label><input id="share-location" type="checkbox" onchange="changeLocationSharing()"> Share live location by link</label><button type="button" onclick="showTrackingPopup()">View / share link</button></div>
+                <p class="account-settings-help">Sharing is optional. Enable it during a ride; uncheck to revoke its link.</p>
+            </section>
             <!-- Core Operations Section -->
             <div class="bg-slate-950/60 border border-slate-850/80 rounded-2xl p-4 space-y-3 shadow-inner">
                 <div class="text-[9px] text-blue-500 font-extrabold uppercase tracking-widest border-b border-slate-900 pb-1.5 flex items-center gap-1.5">
@@ -693,11 +698,11 @@
 
         <div class="bg-slate-950 border border-slate-800 rounded-xl p-3.5 space-y-2">
             <div class="text-[8px] sm:text-[9px] text-blue-500 font-extrabold uppercase tracking-widest">Security Settings</div>
-            <label for="set-pwd" class="text-slate-500 font-bold block uppercase">Update Admin Passcode:</label>
+            <p class="text-slate-400">Sign-in uses your account login key. The old local settings PIN is no longer used.</p>
             <input id="set-pwd" disabled hidden type="password" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white">
         </div>
 
-        <button class="py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold transition active:scale-95 text-xs" onclick="saveSettings()">💾 SAVE CONFIGURATIONS</button>
+        <button id="save-settings-button" class="py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold transition active:scale-95 text-xs" onclick="saveSettings()">💾 SAVE CONFIGURATIONS</button>
     </div>
 </div>
 
@@ -726,13 +731,14 @@
 
         <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2">
             <div class="text-[8px] sm:text-[9px] text-blue-500 font-extrabold uppercase tracking-widest mb-1">Upload & Restore System</div>
-            <p class="text-slate-500 text-[9px] sm:text-[10px] mb-2">Import a previously downloaded .json file to restore all taxi records instantly</p>
+            <p class="text-slate-400 text-[9px] sm:text-[10px] mb-2">Legacy JSON backups can be checked here, but this cloud version cannot replace server records from the browser. Keep your old backup; historical import needs a separate administrator migration.</p>
             <input type="file" id="backup-file-picker" accept=".json" class="w-full bg-slate-900 p-1.5 border border-slate-800 rounded-lg text-slate-300">
             <button class="w-full py-2 bg-blue-600/20 border border-blue-500/30 text-blue-400 hover:text-white font-bold rounded-lg transition active:scale-95" onclick="restoreSystemFromFile()">🔄 IMPORT & RESTORE FILE</button>
         </div>
 
         <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2" id="local-backups-container">
-            <div class="text-[8px] sm:text-[9px] text-blue-500 font-extrabold uppercase tracking-widest mb-2">Browser Rolling Backups (History)</div>
+            <div class="text-[8px] sm:text-[9px] text-blue-500 font-extrabold uppercase tracking-widest mb-2">Recovery History</div>
+            <p class="text-slate-400">Cloud recovery snapshots are managed on the server. They are not listed or restored from this screen. Manual JSON download remains available.</p>
             <div id="local-backups-list" class="space-y-1.5 max-h-32 overflow-y-auto custom-scrollbar"></div>
         </div>
     </div>
@@ -1070,8 +1076,8 @@
     </div>
 </div>
 
-<script src="assets/config.js"></script>
-<script src="assets/session.js"></script>
-<script src="assets/app.js"></script>
+<script src="assets/config.js?v=mobile-qa-20260911"></script>
+<script src="assets/session.js?v=mobile-qa-20260911"></script>
+<script src="assets/app.js?v=mobile-qa-20260911"></script>
 </body>
 </html>
