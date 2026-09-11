@@ -39,7 +39,7 @@ Run:
 node --test test/frontend.test.mjs test/security.test.mjs test/mobile-layout.test.mjs
 ```
 
-The report contains **43 passing tests: 41 individual checks plus two parent tests**. Coverage includes:
+The report contains **45 passing tests: 43 individual checks plus two parent tests**. Coverage includes:
 
 - Real local HTTP/SQLite server with the actual app and session adapter in a simulated DOM: login, settings success/failure/validation, five mode switches, Settings menu entry points, fuel and repair saves, booking create/delete, manual trip, tracking create/restore/revoke, payment and pending cleanup, bank details, night fare, subsequent saves and stale-write rejection.
 - Server authentication, account isolation, tariff enforcement, receipt immutability, tracking ownership/privacy/expiry/revocation, logout, private-path exclusion and snapshots/audit.
@@ -52,3 +52,11 @@ No production transactions or user credentials were used. The locally prepared b
 Actual Android Chrome/iOS Safari rendering at phone widths and landscape, device keyboard, GPS permission/route accuracy/backgrounding, real browser tracking, CDN outages, voice recognition, map search, PDF/print and reconnect behavior have not been validated in this run. Source/DOM checks are not visual browser QA. The paid receipt format must be checked on the intended printer before live billing.
 
 Recommendation: keep one responsive web app and complete this acceptance pass before considering an installable PWA/native wrapper. No native app, service-worker offline guarantee or app-store package is included here. Preserve existing browser backups; do not clear site data to troubleshoot styling.
+
+## Passenger Start popup and Navigate correction
+
+Compared the user-resubmitted `index (2).html` Start, tracking popup and navigation implementations directly. The previous cloud frontend required enabling a Settings checkbox before its Start-triggered popup could run. This was a behavioral regression even though the function existed. Following the user's request, a successful Start now enables that ride's sharing and awaits the passenger link/QR popup. Settings still allows revoking and reopening the share. Invalid ride starts do not enable sharing.
+
+Navigate was present in markup but hidden for Auto rides. It now appears for all active rides, including restored Auto rides. It opens Google Maps directions to an entered destination; with no destination, it opens the current GPS position. With neither location nor destination it explains what is needed instead of inventing coordinates.
+
+Added behavioral checks that Start alone opens a server-issued passenger link, QR content matches the URL, anonymous HTTP requests can read the share, Auto ride coordinates are published, and Auto navigation opens the correct Google Maps destination/current-position URLs. Tests use simulated DOM and QR/window-opening stubs with the real local HTTP API, not a phone camera or Google Maps browser. No real trip or live account was used. Successful production deployment does not establish phone/GPS/QR scan acceptance.

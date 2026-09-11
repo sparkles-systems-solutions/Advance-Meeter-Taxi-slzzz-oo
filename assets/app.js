@@ -395,7 +395,7 @@ let paymentSaving=false, settingsSaving=false;
                 document.getElementById('showMapPopupBtn').classList.remove('hidden');
                 requestWakeLock();
                 trackRide();
-                if (currentMode !== 'auto') document.getElementById('nav-container').classList.remove('hidden');
+                document.getElementById('nav-container').classList.remove('hidden');
                 startTrackingUpdates();
                 openDriverMapPopup();
             }
@@ -836,8 +836,10 @@ let paymentSaving=false, settingsSaving=false;
         });
         
         currentTrackingId = generateTrackingId();
+        document.getElementById('nav-container').classList.remove('hidden');
+        document.getElementById('share-location').checked=true;
         saveRideState();
-        showTrackingPopup();
+        await showTrackingPopup();
         startTrackingUpdates();
         startRideStatusMonitoring();
         showToast("ගමන සාර්ථකව ආරම්භ විය! 🚕", 'success');
@@ -2370,13 +2372,17 @@ let paymentSaving=false, settingsSaving=false;
 
     // Open Phone Navigation links
     function openPhoneNavigation() {
-        if (!currentDestinationAddress) {
-            showToast("ගමනාන්තය තවම සකසා නොමැත!", "error");
-            return;
-        }
-        const url = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(startLocationAddress)}&destination=${encodeURIComponent(currentDestinationAddress)}&travelmode=driving`;
-        window.open(url, '_blank');
-        addSystemLog('INFO', 'Navigation opened', `Destination: ${currentDestinationAddress}`);
+        const destination=currentDestinationAddress || document.getElementById('end-loc').value.trim();
+        const hasGPS=Number.isFinite(currentLat)&&Number.isFinite(currentLng);
+        let url;
+        if(destination){
+            const origin=hasGPS?`${currentLat},${currentLng}`:startLocationAddress;
+            url=`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&travelmode=driving`;
+        }else if(hasGPS){
+            url=`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${currentLat},${currentLng}`)}`;
+        }else{showToast('Enter a destination or wait for GPS before opening the map.','warning');return;}
+        window.open(url, '_blank','noopener,noreferrer');
+        addSystemLog('INFO', 'Navigation opened', destination?'Destination: '+destination:'Current GPS position');
     }
 
     // ========== Receipt & Print Direct Rendering ==========

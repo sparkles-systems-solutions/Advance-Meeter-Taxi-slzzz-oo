@@ -51,6 +51,14 @@ test('Frontend, session adapter and database integration',async t=>{
   run(`deleteSchedule(${rows[0].id})`);await ctx.cloudStore.flush();assert.equal(JSON.parse((await ctx.cloudStore.request('/state')).data.amt_schedules).length,0);
  });
  await t.test('Manual trip is durably saved',async()=>{run("setMode('manual')");els['start-loc'].value='Test pickup';els['end-loc'].value='Test drop';els['manual-km-input'].value='2';await run('startRide()');await ctx.cloudStore.flush();const s=await ctx.cloudStore.request('/state');assert.equal(JSON.parse(s.data.amt_ride_state).totalMeters,2000);});
+ await t.test('Ride Start automatically opens a usable passenger link without visiting Settings',async()=>{
+  assert.equal(els['share-location'].checked,true);assert.equal(els['trackingPopupModal'].style.display,'flex');
+  const link=new URL(els['trackingLinkDisplay'].textContent);assert.match(link.searchParams.get('track'),/^[a-f0-9]{64}$/);
+  const response=await fetch(ctx.window.AMT_CONFIG.apiBase+'/api/track/'+link.searchParams.get('track'));
+  assert.equal(response.status,200);assert.equal((await response.json()).status,'waiting');
+  let qr;ctx.QRCode=function(container,options){qr=options;};await run('showTrackingPopup()');assert.equal(qr.text,els['trackingLinkDisplay'].textContent);
+  assert.equal(els['nav-container'].classList.contains('hidden'),false);
+ });
  await t.test('Sharing lives in Settings and can be enabled and revoked during a ride',async()=>{
   els['share-location'].checked=true;await run('changeLocationSharing()');await ctx.cloudStore.flush();
   const saved=JSON.parse((await ctx.cloudStore.request('/state')).data.amt_ride_state);assert.equal(saved.sharingEnabled,true);assert.match(saved.trackingShareToken,/^[a-f0-9]{64}$/);
@@ -66,6 +74,17 @@ test('Frontend, session adapter and database integration',async t=>{
  await t.test('Bank transfer details and fare calculation match the original workflow',()=>{
   run("selectedMethod='bank'");els['bank-name'].value='QA Bank';els['bank-ref'].value='REF-1';assert.match(run('getPaymentInfo().detail'),/QA Bank.*REF-1/);
   run('totalMeters=2000;nightActive=false');assert.equal(run('calcFare()'),180);run('nightActive=true');assert.equal(run('calcFare()'),198);run('nightActive=false;totalMeters=0');
+ });
+ await t.test('Auto ride shows Navigate and passenger receives coordinates without signing in',async()=>{
+  els['end-loc'].value='';run("setMode('auto');gpsReady=true;currentLocationAddress='QA pickup';currentDestinationAddress='';currentLat=6.9;currentLng=79.8");
+  await run('startRide()');assert.equal(els['nav-container'].classList.contains('hidden'),false);
+  const share=new URL(els['trackingLinkDisplay'].textContent).searchParams.get('track');
+  const response=await fetch(ctx.window.AMT_CONFIG.apiBase+'/api/track/'+share);const payload=await response.json();
+  assert.equal(response.status,200);assert.equal(payload.lat,6.9);assert.equal(payload.mode,'auto');
+  let opened;ctx.window.open=url=>{opened=new URL(url);};run('openPhoneNavigation()');
+  assert.equal(opened.pathname,'/maps/search/');assert.equal(opened.searchParams.get('query'),'6.9,79.8');
+  els['end-loc'].value='QA drop';run('openPhoneNavigation()');assert.equal(opened.pathname,'/maps/dir/');assert.equal(opened.searchParams.get('destination'),'QA drop');
+  await ctx.cloudStore.flush();
  });
  await t.test('Concurrent modification pauses sync rather than overwriting',async()=>{const s=await ctx.cloudStore.request('/state');await ctx.cloudStore.request('/state',{method:'PUT',headers:{'If-Match':String(s.version)},body:JSON.stringify(s.data)});ctx.cloudStore.setItem('system_logs','[]');await assert.rejects(ctx.cloudStore.flush(),/Another session/);assert(ctx.cloudStore.dirty);});
  }finally{await new Promise(resolve=>app.server.close(resolve));}
