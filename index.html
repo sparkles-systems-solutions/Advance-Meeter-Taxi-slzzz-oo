@@ -1,8 +1,10 @@
 <!DOCTYPE html>
 <html lang="si">
 <head>
+<meta name="referrer" content="no-referrer">
+<link rel="manifest" href="manifest.json">
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Advance Meeter Taxi">
@@ -25,110 +27,22 @@
     <!-- Google Fonts for premium typography -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Share+Tech+Mono&display=swap" rel="stylesheet">
     
-    <style>
-        :root {
-            --primary: #1a4a9e;
-            --primary-gradient: linear-gradient(135deg, #1a4a9e, #2563eb);
-            --secondary: #2ecc71;
-            --secondary-gradient: linear-gradient(135deg, #2ecc71, #27ae60);
-            --accent: #e74c3c;
-            --dark: #1e293b;
-            --white: #ffffff;
-            --radius: 20px;
-            --radius-lg: 28px;
-            --radius-xl: 40px;
-        }
-        body {
-            font-family: 'Inter', -apple-system, sans-serif;
-            background: linear-gradient(145deg, #090d16 0%, #0f172a 100%);
-            padding-top: env(safe-area-inset-top);
-            padding-bottom: env(safe-area-inset-bottom);
-        }
-        .neon-glow-blue {
-            text-shadow: 0 0 10px rgba(37, 99, 235, 0.5), 0 0 20px rgba(37, 99, 235, 0.2);
-        }
-        .neon-glow-green {
-            text-shadow: 0 0 10px rgba(46, 204, 113, 0.5), 0 0 20px rgba(46, 204, 113, 0.2);
-        }
-        .custom-scrollbar::-webkit-scrollbar {
-            width: 6px;
-            height: 6px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-track {
-            background: rgba(30, 41, 59, 0.5);
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-            background: rgba(148, 163, 184, 0.3);
-            border-radius: 4px;
-        }
-        .collapsible-card {
-            background: #0f172a;
-            border: 1px solid #1e293b;
-            border-radius: 24px;
-            overflow: hidden;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        .collapsible-content {
-            max-height: 0;
-            opacity: 0;
-            overflow: hidden;
-            transition: max-height 0.30s ease-out, opacity 0.2s ease, padding 0.30s ease;
-        }
-        .collapsible-card.open {
-            border-color: #3b82f6;
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
-        }
-        .collapsible-card.open .collapsible-content {
-            max-height: 800px;
-            opacity: 1;
-            padding-top: 4px;
-        }
-        @media print {
-            * { margin: 0 !important; padding: 0 !important; }
-            body { 
-                background: white !important; 
-                color: black !important;
-                width: 80mm !important;
-                height: 297mm !important;
-                page-break-after: always;
-            }
-            body * { visibility: hidden !important; }
-            #receiptModal, #receiptModal * { 
-                visibility: visible !important;
-                page-break-inside: avoid !important;
-            }
-            #receiptModal { 
-                display: flex !important; 
-                position: static !important; 
-                width: 80mm !important;
-                height: 297mm !important;
-                background: white !important;
-                margin: 0 !important;
-                padding: 0 !important;
-            }
-            #receipt-view {
-                width: 80mm !important;
-                font-family: monospace !important;
-                font-size: 11px !important;
-                line-height: 1.3 !important;
-                page-break-inside: avoid !important;
-                margin: 0 !important;
-                padding: 2mm !important;
-            }
-            .no-print { display: none !important; }
-            
-            /* Thermal paper optimization */
-            @page {
-                size: 80mm 297mm;
-                margin: 0;
-            }
-        }
-    </style>
+    <link rel="stylesheet" href="assets/app.css">
 </head>
 <body class="min-h-screen text-slate-100 flex items-center justify-center p-2 sm:p-4">
 
+<section id="account-gate" class="account-gate" hidden>
+ <form id="account-form"><h1>Advance Meeter Taxi</h1><p>ඔබගේ account එකට ඇතුළු වන්න.</p>
+ <label for="account-user">Username</label><input id="account-user" autocomplete="username" required>
+ <label for="account-password">Password</label><input id="account-password" type="password" autocomplete="current-password" required>
+ <button id="account-submit" type="submit">Sign in</button><p id="account-error" role="alert"></p></form></section>
 <div id="main-driver-view" class="w-full max-w-md bg-slate-900/95 border border-slate-800/80 rounded-[28px] sm:rounded-[32px] shadow-2xl p-4 sm:p-5 relative transition-all duration-300">
     
+    <button id="pending-payment-banner" class="hidden w-full mb-3 p-3 rounded-xl bg-amber-600 text-white font-bold" onclick="openPaymentPopup()">💳 අවසන් ගමනේ ගෙවීම සම්පූර්ණ කරන්න (Resume payment)</button>
+    <div class="account-toolbar"><span id="account-name"></span><button onclick="cloudStore.logout()">Sign out</button></div>
+    <div id="sync-status" role="status">Waiting for sign-in</div>
+    <div class="account-toolbar"><button onclick="cloudStore.flush().catch(e=>showToast(e.message,'error'))">Retry save</button><button onclick="cloudStore.exportUnsaved()">Export unsaved data</button></div>
+    <div class="share-controls"><label><input id="share-location" type="checkbox" onchange="changeLocationSharing()"> Share live location by link</label><button onclick="showTrackingPopup()">View / share link</button></div>
     <!-- Sticky Recovery Banner -->
     <div id="restore-banner" class="hidden bg-amber-500/20 border border-amber-500/30 text-amber-300 text-center text-xs py-2.5 px-3 rounded-xl mb-3.5 font-bold cursor-pointer transition hover:bg-amber-500/30" onclick="restorePreviousRide()">
         🔄 කලින් ගිය ගමනක් හමු විය! යළි පිහිටුවන්න ක්ලික් කරන්න
@@ -236,27 +150,27 @@
         <div class="collapsible-content px-3.5 pb-3.5 space-y-2.5 pt-1 border-t border-slate-800">
             <div class="grid grid-cols-2 gap-2">
                 <div class="space-y-1">
-                    <label class="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase">පාරිභෝගික නම (Customer Name)</label>
+                    <label for="sch-name" class="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase">පාරිභෝගික නම (Customer Name)</label>
                     <input type="text" id="sch-name" placeholder="නම (Name)" class="w-full bg-slate-900 border border-slate-800 rounded-xl p-2 text-[10px] sm:text-xs text-white focus:outline-none">
                 </div>
                 <div class="space-y-1">
-                    <label class="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase">දුරකථන අංකය (Phone Number)</label>
+                    <label for="sch-phone" class="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase">දුරකථන අංකය (Phone Number)</label>
                     <input type="tel" id="sch-phone" placeholder="දුරකථන (Phone)" class="w-full bg-slate-900 border border-slate-800 rounded-xl p-2 text-[10px] sm:text-xs text-white focus:outline-none">
                 </div>
             </div>
             <div class="space-y-1">
-                <label class="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase">දිනය සහ වේලාව (Date & Time)</label>
+                <label for="sch-datetime" class="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase">දිනය සහ වේලාව (Date & Time)</label>
                 <input type="datetime-local" id="sch-datetime" class="w-full bg-slate-900 border border-slate-800 rounded-xl p-2 text-[10px] sm:text-xs text-white focus:outline-none">
             </div>
             
             <div class="grid grid-cols-2 gap-2">
                 <div class="space-y-1">
-                    <label class="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase">පිටත්වන ස්ථානය (Pickup)</label>
-                    <input type="text" id="sch-start" placeholder="කොළඹ (Pickup)" class="w-full bg-slate-900 border border-slate-800 rounded-xl p-2 text-[10px] sm:text-xs text-white focus:outline-none">
+                    <label for="sch-start" class="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase">පිටත්වන ස්ථානය (Pickup)</label>
+                    <input type="text" id="sch-start" placeholder="කොළඹ (Pickup)" class="w-full bg-slate-900 border border-slate-800 rounded-xl p-2 text-[10px] sm:text-xs text-white focus:outline-none"><div id="sch-start-suggestions" class="hidden bg-slate-950 border border-slate-700 rounded-xl max-h-40 overflow-y-auto"></div>
                 </div>
                 <div class="space-y-1">
-                    <label class="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase">ගමනාන්තය (Drop)</label>
-                    <input type="text" id="sch-end" placeholder="මහනුවර (Drop)" class="w-full bg-slate-900 border border-slate-800 rounded-xl p-2 text-[10px] sm:text-xs text-white focus:outline-none">
+                    <label for="sch-end" class="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase">ගමනාන්තය (Drop)</label>
+                    <input type="text" id="sch-end" placeholder="මහනුවර (Drop)" class="w-full bg-slate-900 border border-slate-800 rounded-xl p-2 text-[10px] sm:text-xs text-white focus:outline-none"><div id="sch-end-suggestions" class="hidden bg-slate-950 border border-slate-700 rounded-xl max-h-40 overflow-y-auto"></div>
                 </div>
             </div>
 
@@ -267,15 +181,15 @@
 
             <div class="grid grid-cols-3 gap-2">
                 <div class="space-y-1 col-span-1">
-                    <label class="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase">ඇස්තමේන්තු දුර (Est KM)</label>
-                    <input type="number" id="sch-km" placeholder="Ex: 12.5" class="w-full bg-slate-900 border border-slate-800 rounded-xl p-2 text-[10px] sm:text-xs text-white focus:outline-none">
+                    <label for="sch-km" class="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase">ඇස්තමේන්තු දුර (Est KM)</label>
+                    <input type="number" min="0" step="any" inputmode="decimal" id="sch-km" placeholder="Ex: 12.5" class="w-full bg-slate-900 border border-slate-800 rounded-xl p-2 text-[10px] sm:text-xs text-white focus:outline-none">
                 </div>
                 <div class="space-y-1 col-span-1">
-                    <label class="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase">Manual Fee (LKR)</label>
-                    <input type="number" id="sch-manual-fare" placeholder="Ex: 1500" class="w-full bg-slate-900 border border-slate-800 rounded-xl p-2 text-[10px] sm:text-xs text-emerald-400 font-bold focus:outline-none">
+                    <label for="sch-manual-fare" class="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase">Manual Fee (LKR)</label>
+                    <input type="number" min="0" step="any" inputmode="decimal" id="sch-manual-fare" placeholder="Ex: 1500" class="w-full bg-slate-900 border border-slate-800 rounded-xl p-2 text-[10px] sm:text-xs text-emerald-400 font-bold focus:outline-none">
                 </div>
                 <div class="space-y-1 col-span-1">
-                    <label class="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase">විශේෂ සටහන්</label>
+                    <label for="sch-notes" class="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase">විශේෂ සටහන්</label>
                     <input type="text" id="sch-notes" placeholder="සටහන" class="w-full bg-slate-900 border border-slate-800 rounded-xl p-2 text-[10px] sm:text-xs text-white focus:outline-none">
                 </div>
             </div>
@@ -341,7 +255,7 @@
             <div class="flex items-center justify-between gap-1">
                 <button class="w-10 h-10 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition active:scale-95" onclick="manualAddDistance(-1)">-1</button>
                 <button class="w-10 h-10 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition active:scale-95" onclick="manualAddDistance(-0.5)">-0.5</button>
-                <input type="number" id="manual-km-input" class="w-20 bg-slate-950 border border-slate-850 text-center text-base font-bold rounded-lg py-2 text-white focus:outline-none" value="0.00" step="0.1" oninput="manualKmInputChanged()">
+                <input type="number" min="0" step="any" inputmode="decimal" id="manual-km-input" class="w-20 bg-slate-950 border border-slate-850 text-center text-base font-bold rounded-lg py-2 text-white focus:outline-none" value="0.00" oninput="manualKmInputChanged()">
                 <button class="w-10 h-10 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition active:scale-95" onclick="manualAddDistance(0.5)">+0.5</button>
                 <button class="w-10 h-10 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition active:scale-95" onclick="manualAddDistance(1)">+1</button>
             </div>
@@ -377,25 +291,25 @@
         </div>
         <div class="collapsible-content px-3.5 pb-3.5 space-y-2.5 pt-1 border-t border-slate-800 text-[10px] sm:text-xs">
             <div class="space-y-1">
-                <label class="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase">පාරිභෝගික දුරකථන අංකය</label>
+                <label for="mobile" class="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase">පාරිභෝගික දුරකථන අංකය</label>
                 <input type="tel" id="mobile" placeholder="පාරිභෝගික දුරකථන අංකය (අත්‍යවශ්‍ය නොවේ)" class="w-full bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-2 text-[10px] sm:text-xs text-white focus:outline-none">
             </div>
             <div class="grid grid-cols-2 gap-2">
                 <div class="space-y-1">
-                    <label class="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase">Manual Fare (LKR)</label>
-                    <input type="number" id="manual-fare" placeholder="Manual Fare (LKR)" class="w-full bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-2 text-[10px] sm:text-xs text-white focus:outline-none" oninput="updateDisplay()">
+                    <label for="manual-fare" class="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase">Manual Fare (LKR)</label>
+                    <input type="number" min="0" step="any" inputmode="decimal" id="manual-fare" placeholder="Manual Fare (LKR)" class="w-full bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-2 text-[10px] sm:text-xs text-white focus:outline-none" oninput="updateDisplay()">
                 </div>
                 <div class="space-y-1">
                     <label class="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase">Waiting Time</label>
                     <select id="wait-select" class="w-full bg-slate-900 border border-slate-800 rounded-xl px-2 py-2 text-[10px] sm:text-xs text-white focus:outline-none" onchange="updateDisplay()">
                         <option value="0">⏱️ පොරොත්තු කාලය: 0 min</option>
-                        <script>for(let i=1;i<=120;i++) document.write(`<option value="${i}">⏱️ පොරොත්තු කාලය: ${i} min</option>`);</script>
+                        <option value="1">Waiting: 1 min</option><option value="2">Waiting: 2 min</option><option value="3">Waiting: 3 min</option><option value="4">Waiting: 4 min</option><option value="5">Waiting: 5 min</option><option value="6">Waiting: 6 min</option><option value="7">Waiting: 7 min</option><option value="8">Waiting: 8 min</option><option value="9">Waiting: 9 min</option><option value="10">Waiting: 10 min</option><option value="11">Waiting: 11 min</option><option value="12">Waiting: 12 min</option><option value="13">Waiting: 13 min</option><option value="14">Waiting: 14 min</option><option value="15">Waiting: 15 min</option><option value="16">Waiting: 16 min</option><option value="17">Waiting: 17 min</option><option value="18">Waiting: 18 min</option><option value="19">Waiting: 19 min</option><option value="20">Waiting: 20 min</option><option value="21">Waiting: 21 min</option><option value="22">Waiting: 22 min</option><option value="23">Waiting: 23 min</option><option value="24">Waiting: 24 min</option><option value="25">Waiting: 25 min</option><option value="26">Waiting: 26 min</option><option value="27">Waiting: 27 min</option><option value="28">Waiting: 28 min</option><option value="29">Waiting: 29 min</option><option value="30">Waiting: 30 min</option><option value="31">Waiting: 31 min</option><option value="32">Waiting: 32 min</option><option value="33">Waiting: 33 min</option><option value="34">Waiting: 34 min</option><option value="35">Waiting: 35 min</option><option value="36">Waiting: 36 min</option><option value="37">Waiting: 37 min</option><option value="38">Waiting: 38 min</option><option value="39">Waiting: 39 min</option><option value="40">Waiting: 40 min</option><option value="41">Waiting: 41 min</option><option value="42">Waiting: 42 min</option><option value="43">Waiting: 43 min</option><option value="44">Waiting: 44 min</option><option value="45">Waiting: 45 min</option><option value="46">Waiting: 46 min</option><option value="47">Waiting: 47 min</option><option value="48">Waiting: 48 min</option><option value="49">Waiting: 49 min</option><option value="50">Waiting: 50 min</option><option value="51">Waiting: 51 min</option><option value="52">Waiting: 52 min</option><option value="53">Waiting: 53 min</option><option value="54">Waiting: 54 min</option><option value="55">Waiting: 55 min</option><option value="56">Waiting: 56 min</option><option value="57">Waiting: 57 min</option><option value="58">Waiting: 58 min</option><option value="59">Waiting: 59 min</option><option value="60">Waiting: 60 min</option><option value="61">Waiting: 61 min</option><option value="62">Waiting: 62 min</option><option value="63">Waiting: 63 min</option><option value="64">Waiting: 64 min</option><option value="65">Waiting: 65 min</option><option value="66">Waiting: 66 min</option><option value="67">Waiting: 67 min</option><option value="68">Waiting: 68 min</option><option value="69">Waiting: 69 min</option><option value="70">Waiting: 70 min</option><option value="71">Waiting: 71 min</option><option value="72">Waiting: 72 min</option><option value="73">Waiting: 73 min</option><option value="74">Waiting: 74 min</option><option value="75">Waiting: 75 min</option><option value="76">Waiting: 76 min</option><option value="77">Waiting: 77 min</option><option value="78">Waiting: 78 min</option><option value="79">Waiting: 79 min</option><option value="80">Waiting: 80 min</option><option value="81">Waiting: 81 min</option><option value="82">Waiting: 82 min</option><option value="83">Waiting: 83 min</option><option value="84">Waiting: 84 min</option><option value="85">Waiting: 85 min</option><option value="86">Waiting: 86 min</option><option value="87">Waiting: 87 min</option><option value="88">Waiting: 88 min</option><option value="89">Waiting: 89 min</option><option value="90">Waiting: 90 min</option><option value="91">Waiting: 91 min</option><option value="92">Waiting: 92 min</option><option value="93">Waiting: 93 min</option><option value="94">Waiting: 94 min</option><option value="95">Waiting: 95 min</option><option value="96">Waiting: 96 min</option><option value="97">Waiting: 97 min</option><option value="98">Waiting: 98 min</option><option value="99">Waiting: 99 min</option><option value="100">Waiting: 100 min</option><option value="101">Waiting: 101 min</option><option value="102">Waiting: 102 min</option><option value="103">Waiting: 103 min</option><option value="104">Waiting: 104 min</option><option value="105">Waiting: 105 min</option><option value="106">Waiting: 106 min</option><option value="107">Waiting: 107 min</option><option value="108">Waiting: 108 min</option><option value="109">Waiting: 109 min</option><option value="110">Waiting: 110 min</option><option value="111">Waiting: 111 min</option><option value="112">Waiting: 112 min</option><option value="113">Waiting: 113 min</option><option value="114">Waiting: 114 min</option><option value="115">Waiting: 115 min</option><option value="116">Waiting: 116 min</option><option value="117">Waiting: 117 min</option><option value="118">Waiting: 118 min</option><option value="119">Waiting: 119 min</option><option value="120">Waiting: 120 min</option>
                     </select>
                 </div>
             </div>
             <div class="space-y-1">
-                <label class="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase">වට්ටම් (Discount LKR)</label>
-                <input type="number" id="discount-input" placeholder="වට්ටම් / Discount (LKR)" class="w-full bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-2 text-[10px] sm:text-xs text-white focus:outline-none" oninput="updateDisplay()">
+                <label for="discount-input" class="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase">වට්ටම් (Discount LKR)</label>
+                <input type="number" min="0" step="any" inputmode="decimal" id="discount-input" placeholder="වට්ටම් / Discount (LKR)" class="w-full bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-2 text-[10px] sm:text-xs text-white focus:outline-none" oninput="updateDisplay()">
             </div>
         </div>
     </div>
@@ -483,7 +397,7 @@
             </div>
             <div class="flex justify-between border-b border-slate-900 pb-1">
                 <span class="text-slate-500 font-bold">ගමන් කළ දුර ප්‍රමාණය:</span>
-                <strong id="track-est-distance" class="text-slate-300 font-extrabold text-blue-400" id="track-km-val">0.00 km</strong>
+                <strong id="track-est-distance" class="text-slate-300 font-extrabold text-blue-400">0.00 km</strong>
             </div>
             <div class="flex justify-between border-b border-slate-900 pb-1">
                 <span class="text-slate-500 font-bold">ගිණුම් ප්‍රකාරය (Mode):</span>
@@ -522,7 +436,7 @@
     </div>
 </div>
 
-<div id="driver-live-tracking-modal" class="fixed inset-0 bg-slate-950/95 backdrop-blur-md hidden flex-col z-[99999] p-3 sm:p-5 overflow-hidden">
+<div id="driver-live-tracking-modal" class="app-dialog fixed inset-0 bg-slate-950/95 backdrop-blur-md hidden flex-col z-[99999] p-3 sm:p-5 overflow-hidden">
     <div class="w-full max-w-lg mx-auto h-full flex flex-col gap-3 relative">
         <!-- Map Popup Header -->
         <div class="flex justify-between items-center bg-slate-900/90 border border-slate-800 rounded-2xl p-3 shadow-lg">
@@ -557,13 +471,13 @@
 </div>
 
 <!-- Modal Dialog Overlays -->
-<div class="fixed bottom-4 left-4 right-4 z-50 flex flex-col gap-2 pointer-events-none" id="toastContainer"></div>
+<div class="fixed bottom-4 left-4 right-4 z-50 flex flex-col gap-2 pointer-events-none" id="toastContainer" role="status" aria-live="polite"></div>
 <div class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm hidden items-center justify-center z-[9999]" id="spinnerOverlay">
     <div class="w-10 h-10 border-4 border-slate-800 border-t-blue-500 rounded-full animate-spin"></div>
 </div>
 
 <!-- Live Tracking URL Generation Popup -->
-<div id="trackingPopupModal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
+<div id="trackingPopupModal" class="app-dialog fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
     <div class="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-5 w-full max-w-sm flex flex-col gap-3.5 text-center">
         <div class="flex justify-end">
             <button class="text-slate-500 hover:text-white" onclick="closeTrackingPopup()">✕</button>
@@ -581,7 +495,7 @@
 </div>
 
 <!-- Schedules Management Modal -->
-<div id="schedule-manager-modal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
+<div id="schedule-manager-modal" class="app-dialog fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
     <div class="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-5 w-full max-w-md max-h-[85vh] overflow-y-auto custom-scrollbar flex flex-col gap-3.5 text-[10px] sm:text-xs">
         <div class="flex justify-between items-center border-b border-slate-800 pb-2.5">
             <h3 class="text-xs sm:text-sm font-extrabold text-indigo-400 uppercase tracking-widest">📅 කාලසටහන් කළමනාකරු (Schedules Manager)</h3>
@@ -613,7 +527,7 @@
 </div>
 
 <!-- Payment Processing Popup -->
-<div id="payment-popup" class="fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
+<div id="payment-popup" class="app-dialog fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
     <div class="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-5 w-full max-w-sm flex flex-col gap-3.5">
         <div class="flex justify-between items-center border-b border-slate-800 pb-2.5">
             <h3 class="text-xs sm:text-sm font-extrabold text-blue-400 uppercase tracking-widest">💳 TRIP PAYMENT CHANNEL</h3>
@@ -668,7 +582,7 @@
     </div>
 </div>
 
-<div id="settings-modal" class="fixed inset-0 bg-slate-950/90 backdrop-blur-md hidden items-center justify-center p-3 sm:p-4 z-40">
+<div id="settings-modal" class="app-dialog fixed inset-0 bg-slate-950/90 backdrop-blur-md hidden items-center justify-center p-3 sm:p-4 z-40">
     <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 w-full max-w-sm max-h-[90vh] overflow-y-auto custom-scrollbar flex flex-col gap-4 shadow-2xl">
         <div class="flex justify-between items-center border-b border-slate-800 pb-3">
             <div class="flex items-center gap-2">
@@ -736,7 +650,7 @@
 </div>
 
 <!-- App settings parameters modal -->
-<div id="app-settings-modal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
+<div id="app-settings-modal" class="app-dialog fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
     <div class="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-5 w-full max-w-sm max-h-[85vh] overflow-y-auto custom-scrollbar flex flex-col gap-3.5 text-[10px] sm:text-xs">
         <div class="flex items-center gap-3 border-b border-slate-800 pb-2.5">
             <button class="text-slate-500 hover:text-white font-bold text-sm" onclick="goBackToSettingsMenu()">←</button>
@@ -746,11 +660,11 @@
         <div class="bg-slate-950 border border-slate-800 rounded-xl p-3.5 space-y-2.5">
             <div class="text-[8px] sm:text-[9px] text-blue-500 font-extrabold uppercase tracking-widest">Brand Identity Settings</div>
             <div class="space-y-1">
-                <label class="text-slate-500 font-bold block uppercase">App Display Name:</label>
+                <label for="set-app-name" class="text-slate-500 font-bold block uppercase">App Display Name:</label>
                 <input id="set-app-name" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white focus:outline-none">
             </div>
             <div class="space-y-1">
-                <label class="text-slate-500 font-bold block uppercase">Receipt Header Name:</label>
+                <label for="set-receipt-header" class="text-slate-500 font-bold block uppercase">Receipt Header Name:</label>
                 <input id="set-receipt-header" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white focus:outline-none">
             </div>
         </div>
@@ -759,28 +673,28 @@
             <div class="text-[8px] sm:text-[9px] text-blue-500 font-extrabold uppercase tracking-widest">Dynamic Tariff Parameters</div>
             <div class="grid grid-cols-2 gap-2">
                 <div class="space-y-1">
-                    <label class="text-slate-500 font-bold block uppercase">Base Fare (Rs):</label>
-                    <input id="set-base" type="number" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white">
+                    <label for="set-base" class="text-slate-500 font-bold block uppercase">Base Fare (Rs):</label>
+                    <input id="set-base" type="number" min="0" step="any" inputmode="decimal" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white">
                 </div>
                 <div class="space-y-1">
-                    <label class="text-slate-500 font-bold block uppercase">Rate Per KM (Rs):</label>
-                    <input id="set-rate" type="number" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white">
+                    <label for="set-rate" class="text-slate-500 font-bold block uppercase">Rate Per KM (Rs):</label>
+                    <input id="set-rate" type="number" min="0" step="any" inputmode="decimal" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white">
                 </div>
                 <div class="space-y-1">
-                    <label class="text-slate-500 font-bold block uppercase">Wait Charge/Min:</label>
-                    <input id="set-wait" type="number" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white">
+                    <label for="set-wait" class="text-slate-500 font-bold block uppercase">Wait Charge/Min:</label>
+                    <input id="set-wait" type="number" min="0" step="any" inputmode="decimal" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white">
                 </div>
                 <div class="space-y-1">
-                    <label class="text-slate-500 font-bold block uppercase">Night Premium (%):</label>
-                    <input id="set-night" type="number" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white">
+                    <label for="set-night" class="text-slate-500 font-bold block uppercase">Night Premium (%):</label>
+                    <input id="set-night" type="number" min="0" step="any" inputmode="decimal" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white">
                 </div>
             </div>
         </div>
 
         <div class="bg-slate-950 border border-slate-800 rounded-xl p-3.5 space-y-2">
             <div class="text-[8px] sm:text-[9px] text-blue-500 font-extrabold uppercase tracking-widest">Security Settings</div>
-            <label class="text-slate-500 font-bold block uppercase">Update Admin Passcode:</label>
-            <input id="set-pwd" type="password" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white">
+            <label for="set-pwd" class="text-slate-500 font-bold block uppercase">Update Admin Passcode:</label>
+            <input id="set-pwd" disabled hidden type="password" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white">
         </div>
 
         <button class="py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold transition active:scale-95 text-xs" onclick="saveSettings()">💾 SAVE CONFIGURATIONS</button>
@@ -788,7 +702,7 @@
 </div>
 
 <!-- Database recovery backup / restore panel -->
-<div id="db-backup-modal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
+<div id="db-backup-modal" class="app-dialog fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
     <div class="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-5 w-full max-w-sm max-h-[85vh] overflow-y-auto custom-scrollbar flex flex-col gap-3.5 text-[10px] sm:text-xs">
         <div class="flex items-center gap-3 border-b border-slate-800 pb-2.5">
             <button class="text-slate-500 hover:text-white font-bold text-sm" onclick="goBackToSettingsMenu()">←</button>
@@ -825,7 +739,7 @@
 </div>
 
 <!-- Fuel Log Modal Form -->
-<div id="fuel-modal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
+<div id="fuel-modal" class="app-dialog fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
     <div class="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-5 w-full max-w-sm flex flex-col gap-3.5 text-[10px] sm:text-xs">
         <div class="flex items-center gap-3 border-b border-slate-800 pb-2.5">
             <button class="text-slate-500 hover:text-white font-bold text-sm" onclick="goBackToSettingsMenu()">←</button>
@@ -834,11 +748,11 @@
         
         <div class="grid grid-cols-2 gap-2">
             <input type="date" id="fuel-date" class="bg-slate-950 border border-slate-800 rounded-lg p-2 text-white focus:outline-none">
-            <input type="number" id="fuel-liters" placeholder="Liters Dispensed" class="bg-slate-950 border border-slate-800 rounded-lg p-2 text-white focus:outline-none">
+            <input type="number" min="0" step="any" inputmode="decimal" id="fuel-liters" placeholder="Liters Dispensed" class="bg-slate-950 border border-slate-800 rounded-lg p-2 text-white focus:outline-none">
         </div>
         <div class="grid grid-cols-2 gap-2">
-            <input type="number" id="fuel-price" placeholder="Price/Liter (Rs)" class="bg-slate-950 border border-slate-800 rounded-lg p-2 text-white focus:outline-none">
-            <input type="number" id="fuel-total" placeholder="Total Cost LKR" readonly class="bg-blue-900/10 border border-slate-800 rounded-lg p-2 text-emerald-400 font-bold focus:outline-none">
+            <input type="number" min="0" step="any" inputmode="decimal" id="fuel-price" placeholder="Price/Liter (Rs)" class="bg-slate-950 border border-slate-800 rounded-lg p-2 text-white focus:outline-none">
+            <input type="number" min="0" step="any" inputmode="decimal" id="fuel-total" placeholder="Total Cost LKR" readonly class="bg-blue-900/10 border border-slate-800 rounded-lg p-2 text-emerald-400 font-bold focus:outline-none">
         </div>
         <input type="text" id="fuel-notes" placeholder="Optional comments/logs" class="bg-slate-950 border border-slate-800 rounded-lg p-2 text-white focus:outline-none">
         
@@ -850,7 +764,7 @@
 </div>
 
 <!-- Repair Log Modal Form -->
-<div id="repair-modal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
+<div id="repair-modal" class="app-dialog fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
     <div class="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-5 w-full max-w-sm flex flex-col gap-3.5 text-[10px] sm:text-xs">
         <div class="flex items-center gap-3 border-b border-slate-800 pb-2.5">
             <button class="text-slate-500 hover:text-white font-bold text-sm" onclick="goBackToSettingsMenu()">←</button>
@@ -862,7 +776,7 @@
             <input type="text" id="repair-desc" placeholder="Repair description details" class="bg-slate-950 border border-slate-800 rounded-lg p-2 text-white focus:outline-none">
         </div>
         <div class="grid grid-cols-2 gap-2">
-            <input type="number" id="repair-cost" placeholder="Repairs cost LKR" class="bg-slate-950 border border-slate-800 rounded-lg p-2 text-white focus:outline-none">
+            <input type="number" min="0" step="any" inputmode="decimal" id="repair-cost" placeholder="Repairs cost LKR" class="bg-slate-950 border border-slate-800 rounded-lg p-2 text-white focus:outline-none">
             <input type="text" id="repair-garage" placeholder="Garage address/name" class="bg-slate-950 border border-slate-800 rounded-lg p-2 text-white focus:outline-none">
         </div>
         <input type="text" id="repair-notes" placeholder="Service notes" class="bg-slate-950 border border-slate-800 rounded-lg p-2 text-white focus:outline-none">
@@ -875,7 +789,7 @@
 </div>
 
 <!-- Reports Menu Modal -->
-<div id="reports-menu-modal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
+<div id="reports-menu-modal" class="app-dialog fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
     <div class="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-5 w-full max-w-sm flex flex-col gap-3 text-[10px] sm:text-xs">
         <div class="flex items-center gap-3 border-b border-slate-800 pb-2.5">
             <button class="text-slate-500 hover:text-white font-bold text-sm" onclick="goBackToSettingsMenu()">←</button>
@@ -893,7 +807,7 @@
     </div>
 </div>
 
-<div id="fuel-report-modal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
+<div id="fuel-report-modal" class="app-dialog fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
     <div class="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-5 w-full max-w-sm flex flex-col gap-3 text-[10px] sm:text-xs">
         <div class="flex items-center gap-3 border-b border-slate-800 pb-2.5">
             <button class="text-slate-500 hover:text-white font-bold text-sm" onclick="goBackToFuelLog()">←</button>
@@ -917,7 +831,7 @@
     </div>
 </div>
 
-<div id="repair-report-modal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
+<div id="repair-report-modal" class="app-dialog fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
     <div class="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-5 w-full max-w-sm flex flex-col gap-3 text-[10px] sm:text-xs">
         <div class="flex items-center gap-3 border-b border-slate-800 pb-2.5">
             <button class="text-slate-500 hover:text-white font-bold text-sm" onclick="goBackToRepairLog()">←</button>
@@ -941,7 +855,7 @@
     </div>
 </div>
 
-<div id="travel-report-modal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
+<div id="travel-report-modal" class="app-dialog fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
     <div class="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-5 w-full max-w-sm flex flex-col gap-3 text-[10px] sm:text-xs">
         <div class="flex items-center gap-3 border-b border-slate-800 pb-2.5">
             <button class="text-slate-500 hover:text-white font-bold text-sm" onclick="goBackToReportsMenu()">←</button>
@@ -966,7 +880,7 @@
     </div>
 </div>
 
-<div id="report-modal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
+<div id="report-modal" class="app-dialog fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
     <div class="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-5 w-full max-w-sm flex flex-col gap-3 text-[10px] sm:text-xs">
         <div class="flex items-center gap-3 border-b border-slate-800 pb-2.5">
             <button class="text-slate-500 hover:text-white font-bold text-sm" onclick="goBackToReportsMenu()">←</button>
@@ -982,7 +896,7 @@
     </div>
 </div>
 
-<div id="income-modal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
+<div id="income-modal" class="app-dialog fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
     <div class="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-5 w-full max-w-sm flex flex-col gap-3 text-[10px] sm:text-xs">
         <div class="flex items-center gap-3 border-b border-slate-800 pb-2.5">
             <button class="text-slate-500 hover:text-white font-bold text-sm" onclick="goBackToReportsMenu()">←</button>
@@ -997,7 +911,7 @@
     </div>
 </div>
 
-<div id="history-modal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
+<div id="history-modal" class="app-dialog fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
     <div class="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-5 w-full max-w-sm flex flex-col gap-3 text-[10px] sm:text-xs max-h-[85vh]">
         <div class="flex items-center gap-3 border-b border-slate-800 pb-2.5">
             <button class="text-slate-500 hover:text-white font-bold text-sm" onclick="goBackToReportsMenu()">←</button>
@@ -1020,7 +934,7 @@
     </div>
 </div>
 
-<div id="profit-report-modal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50 flex-col">
+<div id="profit-report-modal" class="app-dialog fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50 flex-col">
     <div class="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-5 w-full max-w-sm flex flex-col gap-3 text-[10px] sm:text-xs max-h-[85vh] overflow-y-auto custom-scrollbar">
         <div class="flex items-center gap-3 border-b border-slate-800 pb-2.5">
             <button class="text-slate-500 hover:text-white font-bold text-sm" onclick="goBackToReportsMenu()">←</button>
@@ -1045,7 +959,7 @@
     </div>
 </div>
 
-<div id="peak-hours-modal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
+<div id="peak-hours-modal" class="app-dialog fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
     <div class="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-5 w-full max-w-sm flex flex-col gap-3 text-[10px] sm:text-xs">
         <div class="flex items-center gap-3 border-b border-slate-800 pb-2.5">
             <button class="text-slate-500 hover:text-white font-bold text-sm" onclick="goBackToReportsMenu()">←</button>
@@ -1057,7 +971,7 @@
     </div>
 </div>
 
-<div id="driver-performance-modal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
+<div id="driver-performance-modal" class="app-dialog fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
     <div class="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-5 w-full max-w-sm flex flex-col gap-3 text-[10px] sm:text-xs">
         <div class="flex items-center gap-3 border-b border-slate-800 pb-2.5">
             <button class="text-slate-500 hover:text-white font-bold text-sm" onclick="goBackToReportsMenu()">←</button>
@@ -1069,7 +983,7 @@
     </div>
 </div>
 
-<div id="driver-app-modal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-40">
+<div id="driver-app-modal" class="app-dialog fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-40">
     <div class="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-5 w-full max-w-sm flex flex-col gap-3.5 text-[10px] sm:text-xs">
         <div class="flex justify-between items-center border-b border-slate-800 pb-2.5">
             <h3 class="text-xs sm:text-sm font-extrabold text-blue-400 uppercase tracking-widest">👨‍✈️ ACTIVE DRIVER STATUS PANEL</h3>
@@ -1082,7 +996,7 @@
 </div>
 
 <!-- Main thermal bill receipt preview modal container (perfectly scaled and responsive) -->
-<div id="receiptModal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50 overflow-y-auto select-none font-sans">
+<div id="receiptModal" class="app-dialog fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50 overflow-y-auto select-none font-sans">
     <div class="bg-white rounded-3xl p-4 sm:p-5 w-full max-w-sm text-black shadow-2xl flex flex-col gap-4 relative">
         <div class="flex justify-end no-print">
             <button class="text-slate-400 hover:text-black font-bold text-lg" onclick="closeM('receiptModal')">✕</button>
@@ -1100,11 +1014,11 @@
             <button class="py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-[10px] sm:text-xs font-bold transition active:scale-95" onclick="sendEmailWithAttachment()">📧 EMAIL</button>
         </div>
         <button class="py-2 bg-slate-850 hover:bg-slate-800 text-slate-700 rounded-lg text-[10px] sm:text-xs font-bold transition no-print" onclick="downloadReceiptPDF()">📄 SAVE AS PDF</button>
-        <button class="py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] sm:text-xs font-bold transition no-print" onclick="printReceiptDirectly()">🖨️ BLUETOOTH THERMAL PRINT</button>
+        <button class="py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] sm:text-xs font-bold transition no-print" onclick="printReceiptDirectly()">🖨️ PRINT / SAVE AS PDF</button>
     </div>
 </div>
 
-<div id="system-log-modal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
+<div id="system-log-modal" class="app-dialog fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
     <div class="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-5 w-full max-w-sm flex flex-col gap-3 text-[10px] sm:text-xs max-h-[85vh] overflow-y-auto custom-scrollbar">
         <div class="flex items-center gap-3 border-b border-slate-800 pb-2.5">
             <button class="text-slate-500 hover:text-white font-bold text-sm" onclick="goBackToSettingsMenu()">←</button>
@@ -1117,7 +1031,7 @@
 </div>
 
 <!-- Map picker coordinates selection modal -->
-<div id="map-modal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
+<div id="map-modal" class="app-dialog fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
     <div class="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-5 w-full max-w-sm flex flex-col gap-3 text-[10px] sm:text-xs">
         <div class="flex justify-between items-center border-b border-slate-800 pb-2">
             <h4 id="map-title" class="text-xs font-extrabold text-blue-400 uppercase tracking-wider">Select Location</h4>
@@ -1141,7 +1055,7 @@
 </div>
 
 <!-- Verification Admin Pin Entrance modal -->
-<div id="login-modal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
+<div id="login-modal" class="app-dialog fixed inset-0 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-4 z-50">
     <div class="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-5 w-full max-w-xs flex flex-col gap-3.5 text-center">
         <div class="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-xl shadow-lg mx-auto">🚕</div>
         <div>
@@ -1149,2616 +1063,15 @@
             <p class="text-[10px] text-slate-400 mt-1">Settings sathi password taka</p>
         </div>
         
-        <input type="password" id="admin-pass" placeholder="Password taka" class="w-full bg-slate-950 border border-slate-800 rounded-lg py-2.5 px-3 text-center text-white focus:outline-none focus:border-blue-500 text-[10px] sm:text-xs">
+        <input type="password" id="admin-pass" disabled hidden placeholder="Password taka" class="w-full bg-slate-950 border border-slate-800 rounded-lg py-2.5 px-3 text-center text-white focus:outline-none focus:border-blue-500 text-[10px] sm:text-xs">
         
         <button class="py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold text-[10px] sm:text-xs transition active:scale-95" onclick="checkLogin()">LOGIN</button>
         <button class="py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-[10px] sm:text-xs font-semibold transition" onclick="closeM('login-modal')">Cancel kara (CANCEL)</button>
     </div>
 </div>
 
-<script>
-
-    function readStoredList(key) {
-        try { const value = JSON.parse(localStorage.getItem(key) || '[]');
-            return Array.isArray(value) ? value : [];
-        } catch (e) { console.warn('Unable to read stored list: ' + key, e); return []; }
-    }
-    function escapeHTML(value) { return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
-    async function fetchWithTimeout(url, options = {}) {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 8000);
-        try { const response = await fetch(url, {...options, signal: controller.signal});
-            if (!response.ok) throw new Error('Request failed: ' + response.status);
-            return response;
-        } finally { clearTimeout(timer); }
-    }
-    // ========== System Log Initialization ==========
-    let systemLogs = readStoredList('system_logs');
-    function addSystemLog(type, message, details) {
-        let log = { id: Date.now(), date: new Date().toISOString(), type, message, details: details || '' };
-        systemLogs.unshift(log);
-        if (systemLogs.length > 200) systemLogs = systemLogs.slice(0, 200);
-        localStorage.setItem('system_logs', JSON.stringify(systemLogs));
-    }
-    
-    function openSystemLogModal() {
-        let container = document.getElementById('system-log-list');
-        if (container) {
-            container.innerHTML = systemLogs.map(log => `
-                <div class="p-3 bg-slate-950 border border-slate-800/80 rounded-xl text-[10px] text-slate-300 space-y-1">
-                    <div class="flex justify-between font-bold text-slate-400">
-                        <span>${log.type}</span>
-                        <span>${new Date(log.date).toLocaleString()}</span>
-                    </div>
-                    <div>${log.message}</div>
-                    <div class="text-[9px] text-slate-500 font-mono">${log.details}</div>
-                </div>
-            `).join('') || '<div class="text-slate-500 py-10 text-center">No administrative events recorded.</div>';
-            closeM('settings-modal');
-            document.getElementById('system-log-modal').style.display = 'flex';
-        }
-    }
-    
-    function clearSystemLog() {
-        systemLogs = [];
-        localStorage.setItem('system_logs', JSON.stringify(systemLogs));
-        showToast('Administrative Logs Purged', 'success');
-        openSystemLogModal();
-    }
-    
-    function exportSystemLogCSV() {
-        let csv = "Date,Type,Message,Details\n" + systemLogs.map(l => `"${l.date}","${l.type}","${l.message}","${l.details}"`).join("\n");
-        let a = document.createElement('a');
-        a.href = URL.createObjectURL(new Blob([csv], {type: 'text/csv'}));
-        a.download = 'system_logs.csv';
-        a.click();
-        showToast('Administrative Log CSV Downloaded', 'success');
-    }
-    
-    // ========== WAKE LOCK MANAGEMENTS ==========
-    let wakeLock = null;
-    let screenStateIndicator = null;
-    
-    async function requestWakeLock() {
-        if ('wakeLock' in navigator) {
-            try {
-                wakeLock = await navigator.wakeLock.request('screen');
-                showScreenStateIndicator('🟢 SCREEN LOCKED (ON)', 'success');
-                showToast('📱 ස්ක්‍රීන ගිණුම ON - ගමන සක්‍රීය වී ඇත', 'success');
-                
-                document.addEventListener('visibilitychange', async () => {
-                    if (document.hidden || !wakeLock) {
-                        if (sTime) { 
-                            try {
-                                wakeLock = await navigator.wakeLock.request('screen');
-                                showScreenStateIndicator('🟢 SCREEN LOCKED (RESTORED)', 'success');
-                            } catch(err) {
-                                console.log('Failed to restore wake lock');
-                            }
-                        }
-                    }
-                });
-                return true;
-            } catch(e) { 
-                console.warn('Wake Lock API not supported or denied', e);
-                showScreenStateIndicator('⚠️ SCREEN LOCK FAILED', 'warning');
-                return false;
-            }
-        }
-        if (sTime) {
-            showScreenStateIndicator('📱 Screen Manual Mode (No Wake Lock API)', 'info');
-        }
-        return false;
-    }
-    
-    function releaseWakeLock() {
-        if (wakeLock) {
-            wakeLock.release();
-            wakeLock = null;
-            showScreenStateIndicator('⚫ SCREEN UNLOCKED (OFF)', 'danger');
-            showToast('📱 ස්ක්‍රීන ගිණුම OFF - සාධාරණ ස්ක්‍රීන කාලසීමා යෙදෙයි', 'info');
-        }
-    }
-    
-    function showScreenStateIndicator(text, type) {
-        const oldIndicator = document.querySelector('[id="screen-state-indicator"]');
-        if (oldIndicator) oldIndicator.remove();
-        
-        if (!sTime) return;
-        
-        const colors = {
-            'success': 'bg-emerald-600 text-white',
-            'danger': 'bg-rose-600 text-white',
-            'warning': 'bg-amber-600 text-white',
-            'info': 'bg-blue-600 text-white'
-        };
-        
-        const indicator = document.createElement('div');
-        indicator.id = 'screen-state-indicator';
-        indicator.className = `fixed top-4 right-4 px-3 py-2 rounded-lg text-[10px] sm:text-xs font-bold text-center z-50 ${colors[type] || colors.info} transition-all`;
-        indicator.innerHTML = text;
-        document.body.appendChild(indicator);
-        
-        setTimeout(() => {
-            if (indicator.parentElement) indicator.remove();
-        }, 5000);
-    }
-
-    // ========== NUMBER TO WORDS (SINHALA/ENGLISH ADAPTER) ==========
-    function numberToWords(num) {
-        if (num === 0) return "Zero Rupees Only";
-        const ones = ['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
-        const tens = ['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
-        function convert(n) {
-            if (n < 20) return ones[n];
-            if (n < 100) return tens[Math.floor(n/10)] + (n%10 ? " " + ones[n%10] : "");
-            if (n < 1000) return ones[Math.floor(n/100)] + " Hundred" + (n%100 ? " " + convert(n%100) : "");
-            if (n < 100000) return convert(Math.floor(n/1000)) + " Thousand" + (n%1000 ? " " + convert(n%1000) : "");
-            return convert(Math.floor(num/100000)) + " Lakh" + (num%100000 ? " " + convert(num%100000) : "");
-        }
-        return convert(Math.floor(num)) + " Rupees Only";
-    }
-
-    // ========== TOAST NOTIFICATIONS (TOASTS) ==========
-    function showToast(message, type = 'info') {
-        const container = document.getElementById('toastContainer');
-        const toast = document.createElement('div');
-        toast.className = `p-3 rounded-xl bg-slate-900 border border-slate-800 shadow-2xl flex items-center gap-3 text-xs text-white border-l-4 pointer-events-auto animate-bounce ${type === 'success' ? 'border-l-emerald-500' : type === 'error' ? 'border-l-red-500' : 'border-l-blue-500'}`;
-        toast.innerHTML = `<span>${type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️'}</span><span>${message}</span>`;
-        container.appendChild(toast);
-        setTimeout(() => toast.remove(), 4000);
-    }
-    
-    function showLoading(show) {
-        document.getElementById('spinnerOverlay').style.display = show ? 'flex' : 'none';
-    }
-
-    // ========== Voice Command Support System ==========
-    let voiceActive = false, recognition = null;
-    function initVoiceRecognition() {
-        if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-            document.getElementById('voiceStatus').innerHTML = '❌ Voice engine not supported';
-            return false;
-        }
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        recognition = new SpeechRecognition();
-        recognition.continuous = true;
-        recognition.interimResults = true;
-        recognition.lang = 'en-US';
-        
-        recognition.onresult = function(event) {
-            let transcript = '';
-            for (let i = event.resultIndex; i < event.results.length; i++) {
-                transcript += event.results[i][0].transcript;
-            }
-            transcript = transcript.toLowerCase().trim();
-            document.getElementById('voiceStatus').innerHTML = `🗣️ Recognized: "${transcript}"`;
-            processVoiceCommand(transcript);
-        };
-        recognition.onerror = function() {
-            if (voiceActive) setTimeout(() => { try { recognition.start(); } catch(e) {} }, 2500);
-        };
-        recognition.onend = function() {
-            if (voiceActive) {
-                try { recognition.start(); } catch(e) {
-                    voiceActive = false;
-                    document.getElementById('voiceBtn').innerHTML = '🎤 VOICE CONTROL (OFF)';
-                }
-            }
-        };
-        return true;
-    }
-    
-    function toggleVoiceCommand() {
-        if (!voiceActive) {
-            if (!recognition && !initVoiceRecognition()) return;
-            try {
-                recognition.start();
-                voiceActive = true;
-                document.getElementById('voiceBtn').innerHTML = '🎤 LISTENING...';
-                document.getElementById('voiceStatus').innerHTML = '🔴 සක්‍රීය හඬ හඳුනාගැනීම...';
-                showToast('Voice Command Engine Activated', 'success');
-            } catch(e) {
-                showToast('Mic Access Authorization Failed', 'error');
-            }
-        } else {
-            if (recognition) recognition.stop();
-            voiceActive = false;
-            document.getElementById('voiceBtn').innerHTML = '🎤 VOICE CONTROL (OFF)';
-            document.getElementById('voiceStatus').innerHTML = '⚪ සක්‍රීය කිරීමට ක්ලික් කරන්න';
-            showToast('Voice Commands Deactivated', 'info');
-        }
-    }
-    
-    function processVoiceCommand(cmd) {
-        if (cmd === 'sr' || cmd.includes('start ride') || cmd.includes('start')) {
-            if (!sTime) startRide(); else showToast('Active Ride Running', 'warning');
-        } else if (cmd === 'er' || cmd.includes('end ride') || cmd.includes('end')) {
-            if (sTime) endRide(); else showToast('No Active Trip', 'warning');
-        } else if (cmd === 'nav' || cmd.includes('navigate')) {
-            if (currentDestinationAddress) openPhoneNavigation(); else showToast('No Target Destination Set', 'warning');
-        } else if (cmd === 'rp' || cmd.includes('report')) {
-            openReportsMenu();
-        } else if (cmd === 'fl' || cmd.includes('fuel')) {
-            openFuelLogModal();
-        } else if (cmd === 'rpl' || cmd.includes('repair')) {
-            openRepairLogModal();
-        }
-    }
-
-    // ========== STREAMING_CHUNK: Core State Initializations & Expanded Modals ==========
-    let sTime = null, watchId = null, totalMeters = 0, lastLat = null, lastLon = null, currentLat = null, currentLng = null, currentRID = "", nightActive = false, gpsReady = false, currentMode = "auto", pendingRideData = null, selectedMethod = "cash", currentLocationAddress = "", currentLocationLat = null, currentLocationLon = null, startLocationAddress = "", currentDestinationAddress = "", mapObj = null, mapMarker = null, mapPickerField = null, currentTrackingId = null;
-    let deliveryPickupName="", deliveryPickupPhone="", deliveryDeliveryName="", deliveryDeliveryPhone="";
-    let SETTINGS = { base: 100, rate: 80, waitRate: 5, nightPercent: 10, appName: "ADVANCE MEETER TAXI", receiptName: "AMT OFFICIAL RECEIPT", password: "1234", logo: null };
-    let currentReportType = "daily";
-    let passengerMap = null, passengerMarker = null;
-    let driverPopupMap = null, driverPopupMarker = null;
-    
-    // Track execution of a loaded schedule booking
-    let activeBookingId = null; 
-    let activeBookingManualFare = null;
-    
-    // ========== RIDE STATUS MONITORING ==========
-    let rideStatusInterval = null;
-    let currentGPSAccuracy = 0;
-    
-    // ========== BOOKING & SCHEDULE STATE MANAGEMENT ==========
-    let schedules = readStoredList('amt_schedules');
-    let currentScheduleFilterTab = "all";
-    
-    function saveSchedules() {
-        localStorage.setItem('amt_schedules', JSON.stringify(schedules));
-        checkScheduleReminders();
-    }
-    
-    function startRideStatusMonitoring() {
-        const statusPanel = document.getElementById('ride-status-panel');
-        if (statusPanel) statusPanel.classList.remove('hidden');
-        
-        if (rideStatusInterval) clearInterval(rideStatusInterval);
-        
-        rideStatusInterval = setInterval(() => {
-            if (!sTime) {
-                stopRideStatusMonitoring();
-                return;
-            }
-            
-            // Update elapsed time
-            const elapsed = Math.floor((Date.now() - sTime.getTime()) / 1000);
-            const hours = Math.floor(elapsed / 3600);
-            const minutes = Math.floor((elapsed % 3600) / 60);
-            const seconds = elapsed % 60;
-            const timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-            
-            const timeEl = document.getElementById('ride-elapsed-time');
-            if (timeEl) timeEl.innerText = timeStr;
-            
-            // Update GPS accuracy
-            const avgAccuracy = getAverageGPSAccuracy();
-            const accuracyEl = document.getElementById('ride-gps-accuracy');
-            if (accuracyEl) {
-                const color = avgAccuracy < 20 ? 'text-emerald-400' : avgAccuracy < 50 ? 'text-amber-400' : 'text-rose-400';
-                accuracyEl.className = `${color} font-extrabold`;
-                accuracyEl.innerText = Math.round(avgAccuracy) + 'm';
-            }
-            
-            // Update battery level
-            if (navigator.getBattery || navigator.battery) {
-                const battery = navigator.getBattery?.() || navigator.battery;
-                Promise.resolve(battery).then(bat => {
-                    const batteryEl = document.getElementById('ride-battery-level');
-                    if (batteryEl) {
-                        const percent = Math.round(bat.level * 100);
-                        const batColor = percent > 50 ? 'text-green-400' : percent > 20 ? 'text-amber-400' : 'text-rose-400';
-                        batteryEl.className = `${batColor} font-extrabold`;
-                        batteryEl.innerText = percent + '%' + (bat.charging ? ' ⚡' : '');
-                    }
-                }).catch(e => {
-                    const batteryEl = document.getElementById('ride-battery-level');
-                    if (batteryEl) batteryEl.innerText = 'N/A';
-                });
-            }
-        }, 1000);
-    }
-    
-    function stopRideStatusMonitoring() {
-        if (rideStatusInterval) {
-            clearInterval(rideStatusInterval);
-            rideStatusInterval = null;
-        }
-        const statusPanel = document.getElementById('ride-status-panel');
-        if (statusPanel) statusPanel.classList.add('hidden');
-    }
-
-    // Modals Navigation Management
-    function goBackToSettingsMenu() {
-        closeM('app-settings-modal'); closeM('fuel-modal'); closeM('repair-modal'); closeM('reports-menu-modal'); closeM('system-log-modal'); closeM('db-backup-modal');
-        document.getElementById('settings-modal').style.display = 'flex';
-    }
-    function goBackToFuelLog() { closeM('fuel-report-modal'); document.getElementById('fuel-modal').style.display = 'flex'; }
-    function goBackToRepairLog() { closeM('repair-report-modal'); document.getElementById('repair-modal').style.display = 'flex'; }
-    function goBackToReportsMenu() {
-        closeM('report-modal'); closeM('income-modal'); closeM('history-modal'); closeM('travel-report-modal'); closeM('profit-report-modal'); closeM('peak-hours-modal'); closeM('driver-performance-modal');
-        document.getElementById('reports-menu-modal').style.display = 'flex';
-    }
-
-    function saveRideState() {
-        if (sTime) {
-            localStorage.setItem('amt_ride_state', JSON.stringify({
-                isRideActive: true, startTime: sTime, totalMeters, lastLat, lastLon, currentMode, nightActive, startLocationAddress, currentLocationAddress, gpsReady: true, destinationAddress: currentDestinationAddress, trackingId: currentTrackingId,
-                deliveryPickupName, deliveryPickupPhone, deliveryDeliveryName, deliveryDeliveryPhone,
-                activeBookingId, activeBookingManualFare,
-                form: Object.fromEntries(['mobile','wait-select','discount-input','manual-fare','start-loc','end-loc','pickup-name','pickup-phone','delivery-name','delivery-phone'].map(id => [id, document.getElementById(id).value]))
-            }));
-            broadcastOdometerTelemetry();
-        } else {
-            localStorage.removeItem('amt_ride_state');
-        }
-    }
-    
-    // ========== Peer-to-Peer Telemetry Broadcast Engine ==========
-    async function broadcastOdometerTelemetry(forceStatus = 'active') {
-        if (!currentTrackingId) return;
-        const payload = {
-            id: currentTrackingId,
-            lat: currentLat || lastLat || 6.9271,
-            lng: currentLng || lastLon || 79.8612,
-            timestamp: Date.now(),
-            startAddress: startLocationAddress || 'Colombo, Sri Lanka',
-            destination: currentDestinationAddress || 'Colombo, Sri Lanka',
-            status: forceStatus,
-            currentFare: calcFare(),
-            distanceTraveled: (totalMeters/1000).toFixed(2),
-            mobile: document.getElementById('mobile').value || "N/A",
-            wait: parseInt(document.getElementById('wait-select').value) || 0,
-            disc: Math.max(0, parseFloat(document.getElementById('discount-input').value) || 0),
-            manualFare: Math.max(0, parseFloat(document.getElementById('manual-fare').value) || 0),
-            nightUsed: nightActive,
-            mode: currentMode === 'auto' ? "auto" : (currentMode === 'gps' ? "gps" : (currentMode === 'manual' ? "manual" : "delivery"))
-        };
-        
-        if (currentMode === 'delivery') {
-            payload.deliveryDetails = {
-                senderName: deliveryPickupName || 'N/A',
-                senderPhone: deliveryPickupPhone || 'N/A',
-                recipientName: deliveryDeliveryName || 'N/A',
-                recipientPhone: deliveryDeliveryPhone || 'N/A'
-            };
-        }
-
-        try {
-            await fetchWithTimeout(`https://ntfy.sh/amt_tracking_${currentTrackingId}`, {
-                method: 'POST',
-                body: JSON.stringify(payload)
-            });
-        } catch(e) {
-            console.error("Telemetry failed to reach peer relay: ", e);
-        }
-    }
-
-    function loadRideState() {
-        let saved = localStorage.getItem('amt_ride_state');
-        if (saved) {
-            try {
-                let state = JSON.parse(saved);
-                if (state.isRideActive && state.startTime) {
-                    document.getElementById('restore-banner').classList.remove('hidden');
-                    return true;
-                }
-            } catch(e){}
-        }
-        return false;
-    }
-    
-    function restorePreviousRide() {
-        let saved = localStorage.getItem('amt_ride_state');
-        if (!saved) return;
-        try {
-            let state = JSON.parse(saved);
-            if (!state.isRideActive || !Number.isFinite(Date.parse(state.startTime))) throw new Error('Invalid ride');
-            sTime = new Date(state.startTime);
-            Object.entries(state.form || {}).forEach(([id, value]) => { const el = document.getElementById(id); if (el) el.value = value; });
-            totalMeters = state.totalMeters || 0;
-            lastLat = state.lastLat;
-            lastLon = state.lastLon;
-            currentLat = state.lastLat;
-            currentLng = state.lastLon;
-            currentMode = state.currentMode || "auto";
-            nightActive = state.nightActive || false;
-            startLocationAddress = state.startLocationAddress || "";
-            currentLocationAddress = state.currentLocationAddress || "";
-            currentDestinationAddress = state.destinationAddress || "";
-            currentTrackingId = state.trackingId || null;
-            deliveryPickupName = state.deliveryPickupName || "";
-            deliveryPickupPhone = state.deliveryPickupPhone || "";
-            deliveryDeliveryName = state.deliveryDeliveryName || "";
-            deliveryDeliveryPhone = state.deliveryDeliveryPhone || "";
-            activeBookingId = state.activeBookingId || null;
-            activeBookingManualFare = state.activeBookingManualFare || null;
-            gpsReady = true;
-            
-            setMode(currentMode);
-            startRideStatusMonitoring();
-            document.getElementById('active-ride-banner').classList.remove('hidden');
-            let nightBtn = document.getElementById('nightBtn');
-            if (nightActive) {
-                nightBtn.innerHTML = '🌙 NIGHT ON';
-            } else {
-                nightBtn.innerHTML = '🌙 NIGHT OFF';
-            }
-            
-            updateDisplay();
-            if (currentMode === 'auto' && currentLocationAddress) document.getElementById('current-location-address').innerHTML = currentLocationAddress;
-            if (currentMode === 'manual') document.getElementById('manual-km-input').value = (totalMeters/1000).toFixed(2);
-            if (currentMode === 'delivery') {
-                document.getElementById('pickup-name').value = deliveryPickupName;
-                document.getElementById('pickup-phone').value = deliveryPickupPhone;
-                document.getElementById('delivery-name').value = deliveryDeliveryName;
-                document.getElementById('delivery-phone').value = deliveryDeliveryPhone;
-                document.getElementById('delivery-accordion').classList.add('open');
-            }
-            
-            if (sTime) {
-                document.getElementById('startBtn').innerHTML = "⏵ ACTIVE";
-                document.getElementById('startBtn').disabled = true;
-                document.body.classList.add('ride-active');
-                document.getElementById('showMapPopupBtn').classList.remove('hidden');
-                requestWakeLock();
-                trackRide();
-                if (currentMode !== 'auto') document.getElementById('nav-container').classList.remove('hidden');
-                startTrackingUpdates();
-                openDriverMapPopup();
-            }
-            
-            document.getElementById('restore-banner').classList.add('hidden');
-            document.querySelectorAll('.mode-btn').forEach(btn => btn.style.pointerEvents = 'none');
-            showToast(`Ride Restored: ${(totalMeters/1000).toFixed(2)} km`, 'success');
-        } catch(e){}
-    }
-
-    // ========== STREAMING_CHUNK: Integrating Precise Geolocation Decoder Logic ==========
-    function getSriLankaFallbackAddress(lat, lon) {
-        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return 'Location unavailable';
-        return `GPS: ${lat.toFixed(6)}, ${lon.toFixed(6)} (address unavailable)`;
-    }
-
-    // ========== GEOLOCATION LOGIC (GPS LOGIC) ==========
-    function startGPS() {
-        if (currentMode === 'manual' || sTime) return;
-        if (!navigator.geolocation) {
-            document.getElementById('gps-status').textContent = 'GPS unavailable — use Manual mode';
-            return;
-        }
-        showLoading(true);
-        navigator.geolocation.getCurrentPosition(pos => {
-            if (currentMode === 'manual' || sTime) { showLoading(false); return; }
-            let acc = pos.coords.accuracy;
-            lastLat = pos.coords.latitude;
-            lastLon = pos.coords.longitude;
-            currentLat = pos.coords.latitude;
-            currentLng = pos.coords.longitude;
-            if (acc < 200) {
-                gpsReady = true;
-                document.getElementById('gps-status').innerHTML = `✅ GPS Ready (${acc.toFixed(0)}m)`;
-                document.getElementById('startBtn').disabled = false;
-                if (currentMode === 'auto') {
-                    currentLocationLat = lastLat;
-                    currentLocationLon = lastLon;
-                    reverseGeocode(lastLat, lastLon);
-                }
-                showLoading(false);
-                showToast('GPS Connectivity Stabilized', 'success');
-            } else {
-                showLoading(false);
-                setTimeout(startGPS, 3000);
-            }
-        }, err => {
-            showLoading(false);
-            if (currentMode === 'manual' || sTime) return;
-            document.getElementById('gps-status').innerHTML = '❌ GPS Permissions Required';
-            document.getElementById('startBtn').disabled = true;
-            showToast('GPS Location Permissions Blocked', 'error');
-            if (err.code !== 1) setTimeout(startGPS, 5000);
-        }, { enableHighAccuracy: true, timeout: 15000 });
-    }
-
-    function trackRide() {
-        if (currentMode === "manual" || !navigator.geolocation) return;
-        if (watchId !== null) navigator.geolocation.clearWatch(watchId);
-        watchId = navigator.geolocation.watchPosition(pos => {
-            if (!sTime || rideEnding) return;
-            
-            let lat = pos.coords.latitude, 
-                lon = pos.coords.longitude, 
-                acc = pos.coords.accuracy;
-            
-            currentLat = lat;
-            currentLng = lon;
-            
-            addGPSUpdate(lat, lon, acc);
-            
-            if (acc < 200 && currentMode === 'auto') {
-                reverseGeocode(lat, lon);
-            }
-            
-            if (lastLat !== null && lastLon !== null) {
-                const validation = isValidGPSUpdate(lat, lon, acc, lastLat, lastLon);
-                
-                if (validation.valid) {
-                    const distance = calculateDistanceMeters(lastLat, lastLon, lat, lon);
-                    
-                    if (distance >= MIN_DISTANCE && distance <= MAX_DISTANCE) {
-                        totalMeters += distance;
-                        lastLat = lat;
-                        lastLon = lon;
-                        lastUpdateTime = Date.now();
-                        updateDisplay();
-                        saveRideState();
-                        updateDriverPopupMarker(lat, lon);
-                        
-                        const avgAccuracy = getAverageGPSAccuracy();
-                        if (acc > 40) {
-                            showToast(`📍 GPS නිරවද්යතා: ${acc.toFixed(0)}m (සාමාන්ය: ${avgAccuracy}m)`, 'info');
-                        }
-                    }
-                } else {
-                    console.warn('GPS validation failed: ' + validation.reason);
-                }
-            } else {
-                lastLat = lat;
-                lastLon = lon;
-                lastUpdateTime = Date.now();
-            }
-            
-            if (mapMarker && mapObj) {
-                updateDriverPopupMarker(lat, lon);
-            }
-            
-        }, null, { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 });
-    }
-
-    async function reverseGeocode(lat, lon) {
-        if (!lat || !lon) return "Colombo, Sri Lanka";
-        try {
-            let res = await fetchWithTimeout(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&accept-language=en&countrycodes=lk`, {
-                headers: { "Accept-Language": "en" }
-            });
-            let data = await res.json();
-            currentLocationAddress = data.display_name || getSriLankaFallbackAddress(lat, lon);
-            document.getElementById('current-location-address').innerHTML = currentLocationAddress.substring(0, 80);
-            return currentLocationAddress;
-        } catch(e){
-            currentLocationAddress = getSriLankaFallbackAddress(lat, lon);
-            document.getElementById('current-location-address').innerHTML = currentLocationAddress.substring(0, 80);
-            return currentLocationAddress;
-        }
-    }
-
-    function refreshCurrentLocation() {
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(pos => {
-                currentLat = pos.coords.latitude;
-                currentLng = pos.coords.longitude;
-                reverseGeocode(pos.coords.latitude, pos.coords.longitude);
-            });
-        }
-        showToast('Local Coordinates Refreshed', 'info');
-    }
-
-    function setMode(mode) {
-        currentMode = mode;
-        ['auto','gps','manual','delivery','schedule'].forEach(m => {
-            const btn = document.getElementById(`mode-${m}`);
-            if (btn) {
-                btn.classList.remove('bg-blue-600', 'text-white');
-                btn.classList.add('text-slate-400');
-            }
-        });
-        const currentBtn = document.getElementById(`mode-${mode}`);
-        if (currentBtn) {
-            currentBtn.classList.add('bg-blue-600', 'text-white');
-            currentBtn.classList.remove('text-slate-400');
-        }
-        
-        if (mode === 'auto') {
-            document.getElementById('auto-location-card').style.display = 'flex';
-            document.getElementById('location-fields').style.display = 'none';
-            document.getElementById('delivery-accordion').style.display = 'none';
-            document.getElementById('manual-controls').style.display = 'none';
-            if (!sTime) startGPS();
-            refreshCurrentLocation();
-        } else if (mode === 'gps') {
-            document.getElementById('auto-location-card').style.display = 'none';
-            document.getElementById('location-fields').style.display = 'block';
-            document.getElementById('delivery-accordion').style.display = 'none';
-            document.getElementById('manual-controls').style.display = 'none';
-            if (!sTime) startGPS();
-            setupAutocomplete('start-loc', 'start-loc-suggestions');
-            setupAutocomplete('end-loc', 'end-loc-suggestions');
-        } else if (mode === 'manual') {
-            document.getElementById('auto-location-card').style.display = 'none';
-            document.getElementById('location-fields').style.display = 'block';
-            document.getElementById('delivery-accordion').style.display = 'none';
-            document.getElementById('manual-controls').style.display = 'block';
-            gpsReady = true;
-            if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
-            document.getElementById('startBtn').disabled = false;
-            setupAutocomplete('start-loc', 'start-loc-suggestions');
-            setupAutocomplete('end-loc', 'end-loc-suggestions');
-        } else if (mode === 'delivery') {
-            document.getElementById('auto-location-card').style.display = 'none';
-            document.getElementById('location-fields').style.display = 'block';
-            document.getElementById('delivery-accordion').style.display = 'block';
-            document.getElementById('manual-controls').style.display = 'none';
-            if (!sTime) startGPS();
-            setupAutocomplete('start-loc', 'start-loc-suggestions');
-            setupAutocomplete('end-loc', 'end-loc-suggestions');
-        } else if (mode === 'schedule') {
-            // Expands booking scheduler accordion dynamically and focuses details
-            document.getElementById('auto-location-card').style.display = 'none';
-            document.getElementById('location-fields').style.display = 'block';
-            document.getElementById('delivery-accordion').style.display = 'none';
-            document.getElementById('manual-controls').style.display = 'none';
-            
-            // Expand Schedule accordion directly
-            const bookingAcc = document.getElementById('booking-accordion');
-            if (bookingAcc && !bookingAcc.classList.contains('open')) {
-                toggleAccordion('booking-accordion');
-            }
-            if (!sTime) startGPS();
-            setupAutocomplete('sch-start', 'start-loc-suggestions');
-            setupAutocomplete('sch-end', 'end-loc-suggestions');
-        }
-        updateDisplay();
-        showToast(`${mode.toUpperCase()} Navigation Mode Enabled`, 'info');
-    }
-
-    let searchTimeout;
-    function setupAutocomplete(inputId, suggestionsId) {
-        let input = document.getElementById(inputId);
-        let div = document.getElementById(suggestionsId);
-        if (!input || !div || input.dataset.autocompleteReady) return;
-        input.dataset.autocompleteReady = 'true';
-        
-        input.addEventListener('input', function() {
-            let q = this.value.trim();
-            if (q.length < 2) { div.style.display = 'none'; return; }
-            clearTimeout(searchTimeout);
-            searchTimeout = setTimeout(async () => {
-                let results = await searchSriLankaLocations(q);
-                if (input.value.trim() !== q) return;
-                if (!Array.isArray(results)) results = [];
-                div.innerHTML = '';
-                if (results.length === 0) {
-                    div.innerHTML = '<div class="p-2 border-b border-slate-800 text-slate-400">No Sri Lanka Results found.</div>';
-                } else {
-                    results.forEach(p => {
-                        let item = document.createElement('div');
-                        item.className = 'p-2 border-b border-slate-800 hover:bg-slate-900 cursor-pointer text-xs truncate';
-                        item.textContent = p.display_name.substring(0, 80);
-                        item.onclick = () => {
-                            input.value = p.display_name;
-                            if (inputId === 'end-loc' || inputId === 'sch-end') {
-                                currentDestinationAddress = p.display_name;
-                            }
-                            if (inputId === 'start-loc' || inputId === 'sch-start') {
-                                startLocationAddress = p.display_name;
-                            }
-                            div.style.display = 'none';
-                        };
-                        div.appendChild(item);
-                    });
-                }
-                div.style.display = 'block';
-            }, 400);
-        });
-        document.addEventListener('click', e => { if (e.target !== input) div.style.display = 'none'; });
-    }
-
-    // ========== ENHANCED GPS DISTANCE CALCULATION ENGINE ==========
-    let gpsAccuracyHistory = [];
-    let lastValidLat = null, lastValidLon = null;
-    const MAX_ACCURACY = 50; 
-    const MIN_DISTANCE = 2; 
-    const MAX_DISTANCE = 500; 
-    const MIN_TIME_BETWEEN_UPDATES = 2000; 
-    let lastUpdateTime = 0;
-    
-    function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
-        const R = 6371000; 
-        const dLat = (lat2 - lat1) * Math.PI / 180;
-        const dLon = (lon2 - lon1) * Math.PI / 180;
-        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + 
-                  Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-        const distance = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        return distance;
-    }
-    
-    function isValidGPSUpdate(lat, lon, accuracy, prevLat, prevLon) {
-        if (accuracy > MAX_ACCURACY) {
-            return { valid: false, reason: '📍 GPS නිරවද්යතා දුර්බල (accuracy > ' + MAX_ACCURACY + 'm)' };
-        }
-        
-        if (prevLat === null || prevLon === null) {
-            return { valid: true, reason: 'මුල් GPS ස්ථානය' };
-        }
-        
-        const now = Date.now();
-        if (now - lastUpdateTime < MIN_TIME_BETWEEN_UPDATES) {
-            return { valid: false, reason: '⏱️ GPS යාවත්කාලීනතා වඩා ඉක්මනි (too frequent)' };
-        }
-        
-        const distance = calculateDistanceMeters(prevLat, prevLon, lat, lon);
-        
-        if (distance < MIN_DISTANCE) {
-            return { valid: false, reason: '🟡 දුරක්ෂණ අතුරුපුර පර (distance < ' + MIN_DISTANCE + 'm)' };
-        }
-        
-        if (distance > MAX_DISTANCE) {
-            return { valid: false, reason: '⚠️ GPS jumping far (' + Math.round(distance) + 'm) - spurious data' };
-        }
-        
-        return { valid: true, reason: '✅ හරි GPS ස්ථානය' };
-    }
-    
-    function addGPSUpdate(lat, lon, accuracy) {
-        gpsAccuracyHistory.push({ accuracy, timestamp: Date.now() });
-        if (gpsAccuracyHistory.length > 20) {
-            gpsAccuracyHistory.shift();
-        }
-    }
-    
-    function getAverageGPSAccuracy() {
-        if (gpsAccuracyHistory.length === 0) return 100;
-        const sum = gpsAccuracyHistory.reduce((a, b) => a + b.accuracy, 0);
-        return (sum / gpsAccuracyHistory.length).toFixed(1);
-    }
-
-    let lastKmValue = 0, lastFareValue = 0;
-    function animateCounter(id) {
-        let el = document.getElementById(id);
-        if (el) {
-            el.classList.remove('count-animation');
-            void el.offsetWidth;
-            el.classList.add('count-animation');
-        }
-    }
-
-    function updateDisplay() {
-        let km = totalMeters / 1000;
-        let fare = calcFare();
-        if (Math.abs(km - lastKmValue) > 0.01) {
-            animateCounter('disp-km');
-            lastKmValue = km;
-        }
-        if (fare !== lastFareValue) {
-            animateCounter('disp-fare');
-            lastFareValue = fare;
-        }
-        document.getElementById('disp-km').innerHTML = km.toFixed(2);
-        document.getElementById('disp-fare').innerHTML = fare.toFixed(2);
-        
-        const popupKm = document.getElementById('popup-disp-km');
-        const popupFare = document.getElementById('popup-disp-fare');
-        if (popupKm) popupKm.innerText = km.toFixed(2) + " KM";
-        if (popupFare) popupFare.innerText = "Rs. " + fare.toFixed(2);
-        
-        const kmInput = document.getElementById('manual-km-input');
-        if (kmInput && document.activeElement !== kmInput) {
-            kmInput.value = km.toFixed(2);
-        }
-        
-        let ni = document.getElementById('night-indicator');
-        if (ni) ni.style.display = (nightActive && !document.getElementById('manual-fare').value) ? 'inline-block' : 'none';
-    }
-
-    function calcFare() {
-        let manualFare = Math.max(0, parseFloat(document.getElementById('manual-fare').value) || 0),
-            disc = Math.max(0, parseFloat(document.getElementById('discount-input').value) || 0),
-            wait = (parseInt(document.getElementById('wait-select').value) || 0),
-            waitCharge = wait * SETTINGS.waitRate,
-            km = totalMeters / 1000,
-            total = manualFare > 0 ? manualFare + waitCharge - disc : SETTINGS.base + (Math.max(0, km - 1) * SETTINGS.rate) + waitCharge - disc;
-            
-        if (nightActive && manualFare === 0) total = total + (total * SETTINGS.nightPercent / 100);
-        return Math.max(0, Math.round(total));
-    }
-
-    // ========== STREAMING_CHUNK: Managing Active Ride Start & End Sequences ==========
-    async function startRide() {
-        if (pendingRideData) { openPaymentPopup(); return; }
-        if(sTime) { showToast("Ride already active!", 'warning'); return; }
-        
-        if(currentMode === 'auto') { 
-            if(!currentLocationAddress || currentLocationAddress === "GPS සංඥා ලැබෙන තෙක් රැඳී සිටින්න...") { 
-                showToast("GPS සක්‍රීය වන තෙක් රැඳී සිටින්න!", 'warning'); 
-                return; 
-            } 
-            startLocationAddress = currentLocationAddress;
-        } 
-        else if(currentMode === 'gps' || currentMode === 'manual' || currentMode === 'delivery' || currentMode === 'schedule') { 
-            // Handles cases for schedule execution maps inheritance
-            let startLocVal = document.getElementById('start-loc').value.trim();
-            let endLocVal = document.getElementById('end-loc').value.trim();
-            
-            if (currentMode === 'schedule') {
-                startLocVal = document.getElementById('sch-start').value.trim();
-                endLocVal = document.getElementById('sch-end').value.trim();
-            }
-            
-            if(!startLocVal || !endLocVal) { 
-                showToast("කරුණාකර Pickup සහ Drop ස්ථාන ඇතුළත් කරන්න!", 'warning'); 
-                return; 
-            } 
-            if(!gpsReady) { 
-                showToast("GPS තවම සූදානම් නැත!", 'warning'); 
-                return; 
-            } 
-            startLocationAddress = startLocVal;
-            currentDestinationAddress = endLocVal;
-        }
-        
-        sTime = new Date();
-        await requestWakeLock();
-        document.body.classList.add('ride-active');
-        document.getElementById('showMapPopupBtn').classList.remove('hidden');
-        document.getElementById('active-ride-banner').classList.remove('hidden');
-        
-        if(currentMode === 'auto' || currentMode === 'gps' || currentMode === 'delivery' || currentMode === 'schedule') {
-            totalMeters = 0;
-            lastLat = null; 
-            lastLon = null;
-            trackRide();
-            if (currentMode !== 'auto') document.getElementById('nav-container').classList.remove('hidden');
-        } 
-        else if(currentMode === 'manual') {
-            totalMeters = (parseFloat(document.getElementById('manual-km-input').value) || 0) * 1000;
-            document.getElementById('nav-container').classList.remove('hidden');
-        } 
-        
-        const sBtn = document.getElementById('startBtn');
-        sBtn.innerHTML = "⏵ RUNNING";
-        sBtn.classList.remove('bg-emerald-600', 'hover:bg-emerald-500');
-        sBtn.classList.add('bg-rose-600', 'hover:bg-rose-500', 'animate-pulse');
-        sBtn.disabled = true;
-        updateDisplay();
-        
-        document.querySelectorAll('.mode-btn').forEach(btn => {
-            btn.style.pointerEvents = 'none';
-            btn.style.opacity = '0.5';
-        });
-        
-        currentTrackingId = generateTrackingId();
-        saveRideState();
-        showTrackingPopup();
-        startTrackingUpdates();
-        startRideStatusMonitoring();
-        showToast("ගමන සාර්ථකව ආරම්භ විය! 🚕", 'success');
-        sendNotification('Ride Started', 'Your taxi ride has started. Safe journey!');
-    }
-    
-    // ========== Setting up Driver Map Popup Modal ==========
-    function openDriverMapPopup() {
-        const modal = document.getElementById('driver-live-tracking-modal');
-        modal.style.display = 'flex';
-        
-        const defaultLat = currentLat || lastLat || 6.9271;
-        const defaultLng = currentLng || lastLon || 79.8612;
-        
-        setTimeout(() => {
-            try {
-                if (driverPopupMap) { driverPopupMap.remove(); }
-                driverPopupMap = L.map('driver-popup-map-canvas', { zoomControl: false }).setView([defaultLat, defaultLng], 15);
-                L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-                    maxZoom: 19
-                }).addTo(driverPopupMap);
-                
-                driverPopupMarker = L.marker([defaultLat, defaultLng], {
-                    icon: L.divIcon({
-                        html: '<div style="font-size: 32px;">🚕</div>',
-                        className: 'driver-popup-icon',
-                        iconSize: [36, 36],
-                        iconAnchor: [18, 18]
-                    })
-                }).addTo(driverPopupMap);
-                
-                driverPopupMap.invalidateSize();
-            } catch(e) {
-                console.error("Popup Live Tracking Map Setup failed:", e);
-            }
-        }, 300);
-    }
-    
-    function closeDriverMapPopup() {
-        document.getElementById('driver-live-tracking-modal').style.display = 'none';
-    }
-
-    function updateDriverPopupMarker(lat, lon) {
-        if (driverPopupMarker && driverPopupMap) {
-            driverPopupMarker.setLatLng([lat, lon]);
-            driverPopupMap.setView([lat, lon]);
-        }
-    }
-
-    // ========== STREAMING_CHUNK: Processing Ride End, Payment Handshakes & Executing Schedules ==========
-    let rideEnding = false;
-    async function endRide() { 
-        if(!sTime) { showToast("ක්‍රියාකාරී ගමනක් නොමැත", 'warning'); return; } 
-        if (rideEnding) return;
-        rideEnding = true;
-        try {
-        showLoading(true);
-        closeDriverMapPopup();
-        
-        let finalLat = currentLat || lastLat;
-        let finalLon = currentLng || lastLon;
-        
-        if (currentMode !== 'manual' && navigator.geolocation) {
-            try {
-                const finalPos = await new Promise((resolve, reject) => {
-                    navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 3000 });
-                });
-                finalLat = finalPos.coords.latitude;
-                finalLon = finalPos.coords.longitude;
-                currentLat = finalLat;
-                currentLng = finalLon;
-            } catch (e) {
-                console.log("Fallback geo trigger default values", e);
-            }
-        }
-        
-        let finalAddress = getSriLankaFallbackAddress(finalLat, finalLon);
-        if (currentMode !== 'manual' && finalLat && finalLon) {
-            try {
-                let res = await fetchWithTimeout(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${finalLat}&lon=${finalLon}&accept-language=en&countrycodes=lk`, {
-                    headers: { "Accept-Language": "en" }
-                });
-                let data = await res.json();
-                if (data && data.display_name) {
-                    finalAddress = data.display_name;
-                }
-            } catch(err) {
-                console.log("OSM Error, resolving fallback Sri Lankan address", err);
-            }
-        }
-        
-        if (currentMode === 'manual') finalAddress = currentDestinationAddress || document.getElementById('end-loc').value;
-        let fare = calcFare(); 
-        currentRID = generateReceiptID(); 
-        let km = totalMeters / 1000; 
-        let fromAddress = startLocationAddress || "Unknown Pickup Location";
-
-        if (currentMode === 'delivery') {
-            deliveryPickupName = document.getElementById('pickup-name')?.value || '';
-            deliveryPickupPhone = document.getElementById('pickup-phone')?.value || '';
-            deliveryDeliveryName = document.getElementById('delivery-name')?.value || '';
-            deliveryDeliveryPhone = document.getElementById('delivery-phone')?.value || '';
-        }
-
-        pendingRideData = { 
-            id: currentRID, 
-            fare: fare, 
-            km: km, 
-            from: fromAddress, 
-            to: finalAddress, 
-            mobile: document.getElementById('mobile').value || "N/A", 
-            wait: parseInt(document.getElementById('wait-select').value) || 0, 
-            disc: Math.max(0, parseFloat(document.getElementById('discount-input').value) || 0), 
-            manualFare: Math.max(0, parseFloat(document.getElementById('manual-fare').value) || 0), 
-            nightUsed: nightActive, 
-            mode: activeBookingId ? "Booked Ride" : (currentMode === 'auto' ? "Auto" : (currentMode === 'gps' ? "GPS" : (currentMode === 'manual' ? "Manual" : "Delivery"))), 
-            time: Date.now(),
-            trackingId: currentTrackingId,
-            bookingId: activeBookingId // Link booking ID
-        }; 
-        
-        if (currentMode === 'delivery') { 
-            pendingRideData.pickupName = deliveryPickupName; 
-            pendingRideData.pickupPhone = deliveryPickupPhone; 
-            pendingRideData.deliveryName = deliveryDeliveryName; 
-            pendingRideData.deliveryPhone = deliveryDeliveryPhone; 
-        } 
-        
-        localStorage.setItem('amt_pending_payment', JSON.stringify(pendingRideData));
-        await broadcastOdometerTelemetry('completed');
-        
-        // Mark Schedule Booking executed in Database
-        if (activeBookingId) {
-            schedules = schedules.map(sch => {
-                if (sch.id === activeBookingId) {
-                    return { ...sch, status: "completed" };
-                }
-                return sch;
-            });
-            saveSchedules();
-        }
-
-        resetDriverAppOnly();
-        stopTrackingUpdates();
-        
-        showLoading(false);
-        openPaymentPopup();
-        } catch (e) {
-            showToast('Unable to finish ride. Please retry: ' + e.message, 'error');
-        } finally { rideEnding = false; showLoading(false); }
-    }
-
-    function resetDriverAppOnly() {
-        stopTrackingUpdates();
-        if(watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
-        releaseWakeLock();
-        stopRideStatusMonitoring();
-        document.body.classList.remove('ride-active');
-        document.getElementById('showMapPopupBtn').classList.add('hidden');
-        document.getElementById('active-ride-banner').classList.add('hidden');
-        
-        document.querySelectorAll('.mode-btn').forEach(btn => {
-            btn.style.pointerEvents = 'auto';
-            btn.style.opacity = '1';
-        });
-        
-        sTime = null;
-        totalMeters = 0;
-        lastLat = null;
-        lastLon = null;
-        currentDestinationAddress = "";
-        activeBookingId = null;
-        activeBookingManualFare = null;
-        
-        const sBtn = document.getElementById('startBtn');
-        sBtn.innerHTML = "ගමන අරඹන්න (START)";
-        sBtn.classList.remove('bg-rose-600', 'hover:bg-rose-500', 'animate-pulse');
-        sBtn.classList.add('bg-emerald-600', 'hover:bg-emerald-500');
-        sBtn.disabled = false;
-        
-        document.getElementById('start-loc').value = '';
-        document.getElementById('end-loc').value = '';
-        document.getElementById('mobile').value = '';
-        document.getElementById('manual-fare').value = '';
-        document.getElementById('discount-input').value = '';
-        document.getElementById('wait-select').value = '0';
-        document.getElementById('manual-km-input').value = '0.00';
-        document.getElementById('nav-container').classList.add('hidden');
-        document.getElementById('driver-live-map-card').classList.add('hidden');
-        
-        if (document.getElementById('pickup-name')) document.getElementById('pickup-name').value = '';
-        if (document.getElementById('pickup-phone')) document.getElementById('pickup-phone').value = '';
-        if (document.getElementById('delivery-name')) document.getElementById('delivery-name').value = '';
-        if (document.getElementById('delivery-phone')) document.getElementById('delivery-phone').value = '';
-        
-        updateDisplay();
-        localStorage.removeItem('amt_ride_state');
-        
-        if (currentMode === 'auto') {
-            refreshCurrentLocation();
-        }
-        if (currentMode !== 'manual') {
-            startGPS();
-        } else {
-            gpsReady = true;
-            document.getElementById('startBtn').disabled = false;
-        }
-        showToast('Driver console reset & ready for next ride!', 'info');
-    }
-    
-    function generateReceiptID() { let n=new Date(), y=n.getFullYear(), m=n.getMonth(); let fy=(m>=3)?y:y-1; let c=parseInt(localStorage.getItem(`cnt_${fy}`)||"0")+1; localStorage.setItem(`cnt_${fy}`,c); return `${fy.toString().slice(-2)}${n.toLocaleString('en',{month:'short'}).toUpperCase()}-${c.toString().padStart(8,'0')}`; }
-    
-    // ========== PAYMENT SELECTION CONFIGURATIONS ==========
-    function openPaymentPopup() { 
-        if(!pendingRideData) { showToast("No active trip parameters found.", 'error'); return; }
-        selectedMethod = "cash"; 
-        document.querySelectorAll('.payment-method-btn').forEach(btn => btn.classList.remove('bg-blue-600', 'border-transparent')); 
-        const cashBtn = document.querySelector('.payment-method-btn[data-method="cash"]');
-        if(cashBtn) cashBtn.classList.add('bg-blue-600', 'border-transparent');
-        document.getElementById('payment-detail-fields').classList.remove('hidden'); 
-        document.getElementById('cash-fields').style.display = 'block'; 
-        document.getElementById('card-fields').style.display = 'none'; 
-        document.getElementById('mobile-fields').style.display = 'none'; 
-        document.getElementById('bank-fields').style.display = 'none'; 
-        document.getElementById('other-fields').style.display = 'none'; 
-        document.getElementById('payment-popup').style.display = 'flex'; 
-    }
-    
-    function selectPaymentMethod(method) { 
-        selectedMethod = method; 
-        document.querySelectorAll('.payment-method-btn').forEach(btn => btn.classList.remove('bg-blue-600', 'border-transparent')); 
-        const selectedBtn = document.querySelector(`.payment-method-btn[data-method="${method}"]`);
-        if(selectedBtn) selectedBtn.classList.add('bg-blue-600', 'border-transparent');
-        document.getElementById('cash-fields').style.display = 'none'; 
-        document.getElementById('card-fields').style.display = 'none'; 
-        document.getElementById('mobile-fields').style.display = 'none'; 
-        document.getElementById('bank-fields').style.display = 'none'; 
-        document.getElementById('other-fields').style.display = 'none'; 
-        if(method === 'cash') document.getElementById('cash-fields').style.display = 'block'; 
-        if(method === 'card') document.getElementById('card-fields').style.display = 'block'; 
-        if(method === 'mobile') document.getElementById('mobile-fields').style.display = 'block'; 
-        if(method === 'bank') document.getElementById('bank-fields').style.display = 'block'; 
-        if(method === 'other') document.getElementById('other-fields').style.display = 'block'; 
-    }
-    
-    function getPaymentInfo() { 
-        switch(selectedMethod) { 
-            case 'cash': return { method: 'Cash', detail: '' }; 
-            case 'card': let cd = ""; if(document.getElementById('card-number')?.value) cd += `****${document.getElementById('card-number').value}`; if(document.getElementById('card-name')?.value) cd += ` - ${document.getElementById('card-name').value}`; return { method: 'Card', detail: cd || 'Card payment' }; 
-            case 'mobile': let md = ""; if(document.getElementById('mobile-provider')?.value) md += document.getElementById('mobile-provider').value; if(document.getElementById('mobile-number')?.value) md += ` ${document.getElementById('mobile-number').value}`; return { method: 'Mobile', detail: md || 'Mobile payment' }; 
-            case 'bank': let bd = ""; if(document.getElementById('bank-name')?.value) bd += document.getElementById('bank-name').value; if(document.getElementById('bank-ref')?.value) bd += ` - Ref: ${document.getElementById('bank-ref').value}`; return { method: 'Bank Transfer', detail: bd || 'Bank transfer' }; 
-            default: return { method: document.getElementById('other-method')?.value || 'Other', detail: document.getElementById('other-ref')?.value || '' }; 
-        } 
-    }
-    
-    function closePaymentPopup() { document.getElementById('payment-popup').style.display = 'none'; }
-    
-    function confirmPaymentAndShowReceipt() { 
-        if(!pendingRideData) { 
-            showToast("Transaction data error.", 'error'); 
-            return; 
-        }
-        
-        let paymentInfo = getPaymentInfo(); 
-        pendingRideData.payment = paymentInfo; 
-        
-        let list = readStoredList('rides'); 
-        if (!list.some(ride => ride.id === pendingRideData.id)) list.push(pendingRideData); 
-        localStorage.setItem('rides', JSON.stringify(list)); 
-        
-        try { triggerRollingBackup(); } catch (e) { showToast('Payment saved; backup storage is full.', 'warning'); }
-        localStorage.removeItem('amt_pending_payment');
-        
-        closePaymentPopup(); 
-        showReceipt(pendingRideData, false); 
-        
-        addSystemLog('INFO', 'Payment confirmed', `Receipt: ${pendingRideData.id}`); 
-        showToast('ගෙවීම් තහවුරුයි! රිසිට්පත සූදානම්.', 'success');
-        sendNotification('Payment Received', `Rs.${pendingRideData.fare.toFixed(2)} collected`);
-        
-        pendingRideData = null;
-    }
-
-    // ========== Structuring receipt layout with 100% parity ==========
-    function getPerfectReceiptTemplateHTML(ride, isReprint, qrContainerId) {
-        let sub = (ride.manualFare > 0) ? ride.manualFare : (SETTINGS.base + (Math.max(0, ride.km - 1) * SETTINGS.rate)); 
-        let waitC = (ride.wait || 0) * SETTINGS.waitRate; 
-        let discountRow = "";
-        let waitRow = "";
-        
-        if (ride.disc > 0) {
-            discountRow = `
-            <tr>
-                <td style="font-weight: bold; color: #ef4444; padding-bottom: 2px;">Discount:</td>
-                <td style="text-align: right; font-weight: bold; color: #ef4444; padding-bottom: 2px;">-Rs.${ride.disc.toFixed(2)}</td>
-            </tr>`;
-        }
-        if (waitC > 0) {
-            waitRow = `
-            <tr>
-                <td style="font-weight: bold; padding-bottom: 2px;">Waiting (${ride.wait}m):</td>
-                <td style="text-align: right; font-weight: bold; padding-bottom: 2px;">+Rs.${waitC.toFixed(2)}</td>
-            </tr>`;
-        }
-
-        return `
-            <div style="font-family: monospace; font-size: 11px; color: #000; line-height: 1.4; background: #fff; width: 100%; box-sizing: border-box; padding: 4px 6px;">
-                ${isReprint ? `<div style="background: #ef4444; color: #fff; text-align: center; padding: 3px; font-weight: bold; border-radius: 6px; margin-bottom: 8px; text-transform: uppercase; font-size: 9px;">📋 REPRINT DUPLICATE</div>` : ''}
-                
-                <div style="text-align: center; font-weight: bold; font-size: 13px; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.5px;">${SETTINGS.receiptName}</div>
-                <div style="border-bottom: 1px dashed #000; margin-bottom: 8px;"></div>
-                
-                <table style="width: 100%; border-collapse: collapse; margin-bottom: 8px; font-size: 11px;">
-                    <tr>
-                        <td style="font-weight: bold; width: 35%; padding-bottom: 3px;">Receipt No:</td>
-                        <td style="font-weight: bold; text-align: right; width: 65%; padding-bottom: 3px;">${ride.id}</td>
-                    </tr>
-                    <tr>
-                        <td style="vertical-align: top; font-weight: bold; padding-bottom: 3px;">Tarikh /<br>Date:</td>
-                        <td style="text-align: right; font-weight: bold; vertical-align: top; padding-bottom: 3px;">${new Date(ride.time).toLocaleDateString()} ${new Date(ride.time).toLocaleTimeString()}</td>
-                    </tr>
-                    <tr>
-                        <td style="font-weight: bold; padding-bottom: 3px;">Mobile No:</td>
-                        <td style="font-weight: bold; text-align: right; padding-bottom: 3px;">${ride.mobile || 'N/A'}</td>
-                    </tr>
-                </table>
-                
-                <div style="margin-bottom: 8px;">
-                    <div style="font-weight: bold; text-transform: uppercase; margin-bottom: 1px;">Pickup Location:</div>
-                    <div style="color: #000; font-size: 10px; word-break: break-word; line-height: 1.3;">${ride.from || 'Colombo, Sri Lanka'}</div>
-                </div>
-                
-                <div style="margin-bottom: 10px;">
-                    <div style="font-weight: bold; text-transform: uppercase; margin-bottom: 1px;">Drop Location:</div>
-                    <div style="color: #000; font-size: 10px; word-break: break-word; line-height: 1.3;">${ride.to || 'Colombo, Sri Lanka'}</div>
-                </div>
-                
-                ${ride.mode === 'Delivery' ? `
-                <div style="border: 1px solid #000; border-radius: 6px; padding: 6px; margin-bottom: 8px; background: #f9f9f9;">
-                    <div style="font-weight: bold; text-transform: uppercase; font-size: 10px; margin-bottom: 4px;">📦 DELIVERY & PICKUP DETAILS:</div>
-                    <table style="width: 100%; border-collapse: collapse; font-size: 9px;">
-                        <tr>
-                            <td style="font-weight: bold; width: 45%; padding-bottom: 2px;">Pickup Name:</td>
-                            <td style="padding-bottom: 2px; word-break: break-word;">${ride.pickupName || 'N/A'}</td>
-                        </tr>
-                        <tr>
-                            <td style="font-weight: bold; width: 45%; padding-bottom: 2px;">Pickup Phone:</td>
-                            <td style="padding-bottom: 2px; word-break: break-word;">${ride.pickupPhone || 'N/A'}</td>
-                        </tr>
-                        <tr>
-                            <td style="font-weight: bold; width: 45%; padding-bottom: 2px;">Delivery Name:</td>
-                            <td style="padding-bottom: 2px; word-break: break-word;">${ride.deliveryName || 'N/A'}</td>
-                        </tr>
-                        <tr>
-                            <td style="font-weight: bold; width: 45%;">Delivery Phone:</td>
-                            <td style="word-break: break-word;">${ride.deliveryPhone || 'N/A'}</td>
-                        </tr>
-                    </table>
-                </div>
-                ` : ''}
-                
-                <table style="width: 100%; border-collapse: collapse; margin-bottom: 8px; font-size: 11px;">
-                    <tr>
-                        <td style="font-weight: bold; padding-bottom: 2px;">Durutto / Dist:</td>
-                        <td style="text-align: right; font-weight: bold; padding-bottom: 2px;">${parseFloat(ride.km || 0).toFixed(2)} km</td>
-                    </tr>
-                    <tr>
-                        <td style="font-weight: bold; padding-bottom: 2px;">Base Fare:</td>
-                        <td style="text-align: right; font-weight: bold; padding-bottom: 2px;">Rs.${SETTINGS.base.toFixed(2)}</td>
-                    </tr>
-                    <tr>
-                        <td style="font-weight: bold; padding-bottom: 2px;">Fare:</td>
-                        <td style="text-align: right; font-weight: bold; padding-bottom: 2px;">Rs.${sub.toFixed(2)}</td>
-                    </tr>
-                    ${waitRow}
-                    ${discountRow}
-                    <tr>
-                        <td style="font-weight: bold; padding-bottom: 2px;">Mode:</td>
-                        <td style="text-align: right; font-weight: bold; padding-bottom: 2px;">${ride.mode || 'Auto'}</td>
-                    </tr>
-                    <tr>
-                        <td style="font-weight: bold; padding-bottom: 2px;">Payment:</td>
-                        <td style="text-align: right; font-weight: bold; padding-bottom: 2px;">${ride.payment ? ride.payment.method : 'Cash'}</td>
-                    </tr>
-                </table>
-                
-                <div style="border-bottom: 1px dashed #000; margin-bottom: 8px;"></div>
-                
-                <div style="border: 1px solid #000; border-radius: 8px; background: #fff; padding: 6px 10px; text-align: center; font-weight: bold; font-size: 12px; margin-bottom: 8px; letter-spacing: 0.5px;">
-                    TOTAL: Rs. ${parseFloat(ride.fare || 0).toFixed(2)}
-                </div>
-                
-                <div style="text-align: center; font-weight: bold; font-size: 10px; margin-bottom: 12px; padding: 0 4px; line-height: 1.2;">
-                    ${numberToWords(ride.fare)}
-                </div>
-                
-                <div style="display: flex; justify-content: center; position: relative; margin: 15px 0 10px 0; min-height: 85px;">
-                    <div id="${qrContainerId}" style="background: #fff; padding: 4px; border: 1px solid #000; display: inline-block;"></div>
-                    <div style="position: absolute; bottom: -5px; right: 25px; width: 58px; height: 58px; border-radius: 50%; border: 2px dashed #ef4444; display: flex; align-items: center; justify-content: center; color: #ef4444; font-size: 9px; font-weight: bold; transform: rotate(-15deg); text-transform: uppercase;">AMT PAID</div>
-                </div>
-                
-                <div style="text-align: center; font-size: 9px; color: #555; margin-top: 10px;">
-                    Thank you for riding with us!<br>Powered by Advance Meeter Taxi
-                </div>
-            </div>
-        `;
-    }
-
-    // ========== STREAMING_CHUNK: Managing Location Picker on Live Interactive Leaflet Map ==========
-    let activeMapField = null;
-    function openMapPicker(field) {
-        activeMapField = field;
-        const modal = document.getElementById('map-modal');
-        modal.style.display = 'flex';
-        
-        let titleText = "Select Pickup Location";
-        if (field === 'end' || field === 'sch-end') {
-            titleText = "Select Drop Location";
-        }
-        document.getElementById('map-title').innerText = titleText;
-        
-        setTimeout(() => {
-            initPickerMap();
-        }, 200);
-    }
-    
-    function closeMapModal() {
-        document.getElementById('map-modal').style.display = 'none';
-    }
-    
-    function initPickerMap() {
-        const defaultLat = currentLat || 6.9271;
-        const defaultLng = currentLng || 79.8612;
-        
-        try {
-            if (mapObj) { mapObj.remove(); }
-            mapObj = L.map('map', { zoomControl: true }).setView([defaultLat, defaultLng], 14);
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-                maxZoom: 19
-            }).addTo(mapObj);
-            
-            mapMarker = L.marker([defaultLat, defaultLng], { draggable: true }).addTo(mapObj);
-            
-            // Marker dragging updates address text box
-            mapMarker.on('dragend', async function(e) {
-                const position = mapMarker.getLatLng();
-                const address = await reverseGeocodePicker(position.lat, position.lng);
-                document.getElementById('selected-address').value = address;
-            });
-            
-            // Clicking on map places marker
-            mapObj.on('click', async function(e) {
-                mapMarker.setLatLng(e.latlng);
-                const address = await reverseGeocodePicker(e.latlng.lat, e.latlng.lng);
-                document.getElementById('selected-address').value = address;
-            });
-            
-            // Search function inside map picker
-            const searchInput = document.getElementById('map-search');
-            const resultsDiv = document.getElementById('search-results');
-            
-            searchInput.removeEventListener('input', handleMapSearchInput);
-            searchInput.addEventListener('input', handleMapSearchInput);
-            
-            // Initial location reverse geocoding
-            reverseGeocodePicker(defaultLat, defaultLng).then(addr => {
-                document.getElementById('selected-address').value = addr;
-            });
-            
-        } catch(e) {
-            console.error("Picker map setup failed:", e);
-        }
-    }
-    
-    let mapSearchTimeout;
-    function handleMapSearchInput() {
-        const q = this.value.trim();
-        const resultsDiv = document.getElementById('search-results');
-        if (q.length < 3) { resultsDiv.style.display = 'none'; return; }
-        
-        clearTimeout(mapSearchTimeout);
-        mapSearchTimeout = setTimeout(async () => {
-            const results = await searchSriLankaLocations(q);
-            resultsDiv.innerHTML = '';
-            if (results.length === 0) {
-                resultsDiv.innerHTML = '<div class="p-2 border-b border-slate-800 text-slate-400">No results.</div>';
-            } else {
-                results.forEach(p => {
-                    const item = document.createElement('div');
-                    item.className = 'p-2 border-b border-slate-850 hover:bg-slate-900 cursor-pointer text-xs truncate';
-                    item.textContent = p.display_name.substring(0, 80);
-                    item.onclick = () => {
-                        const lat = parseFloat(p.lat);
-                        const lon = parseFloat(p.lon);
-                        mapMarker.setLatLng([lat, lon]);
-                        mapObj.setView([lat, lon], 15);
-                        document.getElementById('selected-address').value = p.display_name;
-                        resultsDiv.style.display = 'none';
-                    };
-                    resultsDiv.appendChild(item);
-                });
-            }
-            resultsDiv.style.display = 'block';
-        }, 500);
-    }
-    
-    async function reverseGeocodePicker(lat, lon) {
-        try {
-            const res = await fetchWithTimeout(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&accept-language=en&countrycodes=lk`);
-            const data = await res.json();
-            return data.display_name || getSriLankaFallbackAddress(lat, lon);
-        } catch(e) {
-            return getSriLankaFallbackAddress(lat, lon);
-        }
-    }
-    
-    function useMapLocation() {
-        const address = document.getElementById('selected-address').value;
-        if (!address) return;
-        
-        // Dynamic targeting based on field parameter
-        if (activeMapField === 'start') {
-            document.getElementById('start-loc').value = address;
-            startLocationAddress = address;
-        } else if (activeMapField === 'end') {
-            document.getElementById('end-loc').value = address;
-            currentDestinationAddress = address;
-        } else if (activeMapField === 'sch-start') {
-            document.getElementById('sch-start').value = address;
-            startLocationAddress = address;
-        } else if (activeMapField === 'sch-end') {
-            document.getElementById('sch-end').value = address;
-            currentDestinationAddress = address;
-        }
-        
-        closeMapModal();
-        showToast("ස්ථානය සාර්ථකව තෝරා ගන්නා ලදී!", "success");
-    }
-    
-    function getCurrentMapLocation() {
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(async pos => {
-                const lat = pos.coords.latitude;
-                const lon = pos.coords.longitude;
-                mapMarker.setLatLng([lat, lon]);
-                mapObj.setView([lat, lon], 16);
-                const address = await reverseGeocodePicker(lat, lon);
-                document.getElementById('selected-address').value = address;
-            });
-        }
-    }
-
-    // ========== STREAMING_CHUNK: Upgraded Booking & Scheduling Methods ==========
-    function checkScheduleReminders() {
-        const now = Date.now();
-        let upcomingToday = 0;
-        let upcomingThreeDays = 0;
-        let upcomingWeek = 0;
-        let absoluteNext = null;
-
-        schedules.forEach(sch => {
-            // Avoid reminder alerts for completed schedules
-            if (sch.status === "completed") return;
-
-            const schTime = new Date(sch.datetime).getTime();
-            const diff = schTime - now;
-
-            if (diff > 0) {
-                if (diff <= 24 * 60 * 60 * 1000) upcomingToday++;
-                if (diff <= 3 * 24 * 60 * 60 * 1000) upcomingThreeDays++;
-                if (diff <= 7 * 24 * 60 * 60 * 1000) upcomingWeek++;
-
-                if (!absoluteNext || schTime < new Date(absoluteNext.datetime).getTime()) {
-                    absoluteNext = sch;
-                }
-            }
-        });
-
-        const alertBanner = document.getElementById('schedule-alert-banner');
-        const alertText = document.getElementById('schedule-alert-text');
-
-        if (upcomingWeek > 0) {
-            alertBanner.classList.remove('hidden');
-            let SinhaleseAlert = `ඉදිරි කාලය තුළ ගමන් ${upcomingWeek}ක් ඇත!`;
-            if (upcomingThreeDays > 0) SinhaleseAlert = `ඉදිරි දින 3 තුළ ගමන් ${upcomingThreeDays}ක් ඇත!`;
-            if (upcomingToday > 0) SinhaleseAlert = `🚨 අද දිනට සැලසුම් කල ගමන් ${upcomingToday}ක් පවතී!`;
-            
-            alertText.innerText = `${SinhaleseAlert} බැලීමට ක්ලික් කරන්න.`;
-        } else {
-            alertBanner.classList.add('hidden');
-        }
-
-        // Fire warning toast alerts on load for trips starting in 2 hours
-        if (absoluteNext) {
-            const diffMin = Math.round((new Date(absoluteNext.datetime).getTime() - now) / 60000);
-            if (diffMin > 0 && diffMin <= 120) {
-                showToast(`📅 ළඟදීම ඇති ගමන: ${absoluteNext.name} (${diffMin} min ඇතුළත)`, 'warning');
-                sendNotification('Upcoming Ride Alert', `Customer: ${absoluteNext.name} in ${diffMin} minutes!`);
-            }
-        }
-    }
-
-    function addNewSchedule() {
-        const name = document.getElementById('sch-name').value.trim();
-        const phone = document.getElementById('sch-phone').value.trim();
-        const datetime = document.getElementById('sch-datetime').value;
-        const startLoc = document.getElementById('sch-start').value.trim();
-        const endLoc = document.getElementById('sch-end').value.trim();
-        const km = parseFloat(document.getElementById('sch-km').value) || 0;
-        const manualFare = parseFloat(document.getElementById('sch-manual-fare').value) || 0;
-        const notes = document.getElementById('sch-notes').value.trim();
-
-        if (!name || !phone || !datetime || !startLoc || !endLoc) {
-            showToast("කරුණාකර සියලුම අත්‍යවශ්‍ය විස්තර පුරවන්න!", "error");
-            return;
-        }
-
-        const newSch = {
-            id: Date.now(),
-            name,
-            phone,
-            datetime,
-            start: startLoc,
-            end: endLoc,
-            km,
-            manualFare,
-            notes,
-            status: "pending" // track completion status
-        };
-
-        schedules.push(newSch);
-        saveSchedules();
-
-        // Reset Inputs
-        document.getElementById('sch-name').value = '';
-        document.getElementById('sch-phone').value = '';
-        document.getElementById('sch-datetime').value = '';
-        document.getElementById('sch-start').value = '';
-        document.getElementById('sch-end').value = '';
-        document.getElementById('sch-km').value = '';
-        document.getElementById('sch-manual-fare').value = '';
-        document.getElementById('sch-notes').value = '';
-
-        // Collapse card accordion
-        toggleAccordion('booking-accordion');
-        showToast("නව කාලසටහන සාර්ථකව ඇතුළත් කරන ලදී!", "success");
-        addSystemLog('INFO', 'New Ride Scheduled', `Customer: ${name}, Date: ${datetime}`);
-    }
-
-    function deleteSchedule(id) {
-        if (confirm("මෙම කාලසටහන ඉවත් කිරීමට අවශ්‍ය බව ස්ථිරද?")) {
-            schedules = schedules.filter(s => s.id !== id);
-            saveSchedules();
-            filterSchedulesTab(currentScheduleFilterTab);
-            showToast("කාලසටහන සාර්ථකව ඉවත් කරන ලදී.", "success");
-        }
-    }
-
-    // Export Scheduled Booking to Native System Calendar (.ics)
-    function exportScheduleICS(sch) {
-        const startObj = new Date(sch.datetime);
-        const formatICSDate = (date) => {
-            return date.getUTCFullYear() +
-                String(date.getUTCMonth() + 1).padStart(2, '0') +
-                String(date.getUTCDate()).padStart(2, '0') + 'T' +
-                String(date.getUTCHours()).padStart(2, '0') +
-                String(date.getUTCMinutes()).padStart(2, '0') +
-                String(date.getUTCSeconds()).padStart(2, '0') + 'Z';
-        };
-        const dtstart = formatICSDate(startObj);
-        const endObj = new Date(startObj.getTime() + 60 * 60 * 1000); 
-        const dtend = formatICSDate(endObj);
-        const dtstamp = formatICSDate(new Date());
-        
-        const summary = `AMT Taxi: ${sch.name}`;
-        const description = `Customer: ${sch.name}\\nPhone: ${sch.phone}\\nPickup: ${sch.start}\\nDrop: ${sch.end}\\nNotes: ${sch.notes || 'No notes'}`;
-        const location = `${sch.start} to ${sch.end}`;
-        
-        const icsContent = [
-            'BEGIN:VCALENDAR',
-            'VERSION:2.0',
-            'PRODID:-//Advance Meeter Taxi//Schedule Calendar//EN',
-            'CALSCALE:GREGORIAN',
-            'METHOD:PUBLISH',
-            'BEGIN:VEVENT',
-            `UID:amt-schedule-${sch.id}@advancemeetertaxi.com`,
-            `DTSTAMP:${dtstamp}`,
-            `DTSTART:${dtstart}`,
-            `DTEND:${dtend}`,
-            `SUMMARY:${summary}`,
-            `DESCRIPTION:${description}`,
-            `LOCATION:${location}`,
-            'BEGIN:VALARM',
-            'ACTION:DISPLAY',
-            'DESCRIPTION:Upcoming Taxi Ride Schedule Alert',
-            'TRIGGER:-PT15M', 
-            'END:VALARM',
-            'END:VEVENT',
-            'END:VCALENDAR'
-        ].join('\r\n');
-        
-        const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8;' });
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.setAttribute('download', `schedule-${sch.name.replace(/\s+/g, '_')}-${sch.id}.ics`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        showToast('ICS Calendar File Downloaded!', 'success');
-        addSystemLog('INFO', 'ICS exported', `ID: ${sch.id}`);
-    }
-
-    // Immediate Load and Start sequence
-    function loadAndStartSchedule(id) {
-        const sch = schedules.find(s => s.id == id);
-        if (!sch) return;
-        
-        // Setup console tracking parameters
-        setMode('gps');
-        document.getElementById('start-loc').value = sch.start;
-        document.getElementById('end-loc').value = sch.end;
-        document.getElementById('mobile').value = sch.phone;
-        
-        // Handle pre-defined manual fee parameters
-        if (sch.manualFare > 0) {
-            document.getElementById('manual-fare').value = sch.manualFare;
-            activeBookingManualFare = sch.manualFare;
-        } else {
-            document.getElementById('manual-fare').value = '';
-            activeBookingManualFare = null;
-        }
-
-        startLocationAddress = sch.start;
-        currentDestinationAddress = sch.end;
-        activeBookingId = sch.id; // binds schedule to execution session
-
-        closeM('schedule-manager-modal');
-        
-        const bookingAccordion = document.getElementById('booking-accordion');
-        if (bookingAccordion && bookingAccordion.classList.contains('open')) {
-            toggleAccordion('booking-accordion');
-        }
-        
-        // Execute instant ride start sequence
-        setTimeout(() => {
-            startRide();
-            showToast(`Schedule loaded instantly for ${sch.name}! 🚕`, 'success');
-        }, 300);
-    }
-
-    function openScheduleManager() {
-        document.getElementById('schedule-manager-modal').style.display = 'flex';
-        filterSchedulesTab('all');
-    }
-
-    function openScheduleManagerFromSettings() {
-        closeM('settings-modal');
-        openScheduleManager();
-    }
-
-    function filterSchedulesTab(tab) {
-        currentScheduleFilterTab = tab;
-        document.querySelectorAll('.sch-filter-btn').forEach(btn => {
-            btn.classList.remove('bg-indigo-600', 'text-white');
-            btn.classList.add('text-slate-400');
-        });
-
-        const activeBtn = document.getElementById(`sch-tab-${tab}`);
-        if (activeBtn) {
-            activeBtn.classList.add('bg-indigo-600', 'text-white');
-            activeBtn.classList.remove('text-slate-400');
-        }
-
-        renderSchedulesList(tab);
-    }
-
-    function renderSchedulesList(filter) {
-        const now = Date.now();
-        let listContainer = document.getElementById('schedule-list');
-        let filtered = [];
-
-        if (filter === 'all') {
-            filtered = [...schedules];
-        } else if (filter === 'today') {
-            filtered = schedules.filter(s => {
-                const diff = new Date(s.datetime).getTime() - now;
-                return diff >= 0 && diff <= 24 * 60 * 60 * 1000;
-            });
-        } else if (filter === '3days') {
-            filtered = schedules.filter(s => {
-                const diff = new Date(s.datetime).getTime() - now;
-                return diff >= 0 && diff <= 3 * 24 * 60 * 60 * 1000;
-            });
-        } else if (filter === 'week') {
-            filtered = schedules.filter(s => {
-                const diff = new Date(s.datetime).getTime() - now;
-                return diff >= 0 && diff <= 7 * 24 * 60 * 60 * 1000;
-            });
-        }
-
-        // Sort schedules chronologically
-        filtered.sort((a,b) => new Date(a.datetime) - new Date(b.datetime));
-
-        // Update stats banner report
-        document.getElementById('schedule-reports-summary').innerHTML = `
-            <div class="grid grid-cols-2 gap-2 text-xs">
-                <div>සැලසුම් කළ ගමන්: <b class="text-indigo-400">${filtered.length}</b></div>
-                <div>සමස්ත ගමන් දුර: <b class="text-blue-400">${filtered.reduce((acc,curr) => acc + (parseFloat(curr.km) || 0), 0).toFixed(1)} KM</b></div>
-            </div>
-        `;
-
-        if (filtered.length === 0) {
-            listContainer.innerHTML = '<div class="text-slate-500 py-10 text-center">කිසිදු සැලසුම් කළ ගමනක් හමු නොවිණි.</div>';
-            return;
-        }
-
-        listContainer.innerHTML = filtered.map(sch => {
-            const schDate = new Date(sch.datetime);
-            const isCompleted = sch.status === "completed";
-            const statusBadge = isCompleted 
-                ? `<span class="text-[9px] font-mono text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded-full">🟢 Completed</span>`
-                : `<span class="text-[9px] font-mono text-amber-400 font-bold bg-amber-500/10 px-2 py-0.5 rounded-full">🕒 Pending</span>`;
-
-            return `
-                <div class="p-3 bg-slate-950 border ${isCompleted ? 'border-emerald-950/40' : 'border-slate-800'} rounded-xl space-y-2">
-                    <div class="flex justify-between items-center border-b border-slate-900 pb-1.5">
-                        <div>
-                            <span class="font-extrabold text-indigo-400 text-xs">${sch.name}</span>
-                            <span class="text-[9px] text-slate-500 block">${sch.phone}</span>
-                        </div>
-                        <div class="flex flex-col items-end gap-1">
-                            ${statusBadge}
-                            <span class="text-[8px] text-slate-500">${schDate.toLocaleDateString()} ${schDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                        </div>
-                    </div>
-                    <div class="text-[9px] text-slate-300 grid grid-cols-2 gap-1 bg-slate-900/50 p-2 rounded-lg">
-                        <div>📍 Pickup: <b class="text-white truncate block max-w-[150px]">${sch.start}</b></div>
-                        <div>🏁 Drop: <b class="text-white truncate block max-w-[150px]">${sch.end}</b></div>
-                        <div>📏 KM: <b class="text-white">${sch.km ? sch.km + ' km' : 'N/A'}</b></div>
-                        <div>💰 Fare: <b class="text-emerald-400 font-bold">${sch.manualFare > 0 ? 'Rs. ' + sch.manualFare : 'Meter'}</b></div>
-                    </div>
-                    <div class="grid grid-cols-3 gap-1.5 pt-1">
-                        <button class="py-1.5 bg-blue-600/20 border border-blue-500/30 text-blue-400 hover:text-white font-bold rounded-lg text-[9px] transition ${isCompleted ? 'opacity-40 cursor-not-allowed' : ''}" onclick="${isCompleted ? '' : `loadAndStartSchedule(${sch.id})`}">
-                            🚀 Load & Start
-                        </button>
-                        <button class="py-1.5 bg-indigo-600/20 border border-indigo-500/30 text-indigo-400 hover:text-white font-bold rounded-lg text-[9px] transition flex justify-center items-center gap-1" onclick="exportScheduleICS(${JSON.stringify(sch).replace(/"/g, '&quot;')})">
-                            📅 Export ICS
-                        </button>
-                        <button class="py-1.5 bg-red-600/20 border border-red-500/30 text-red-400 hover:text-white font-bold rounded-lg text-[9px] transition" onclick="deleteSchedule(${sch.id})">
-                            🗑️ Delete
-                        </button>
-                    </div>
-                </div>
-            `;
-        }).join('');
-    }
-
-    // ========== STREAMING_CHUNK: Integrating Dynamic Analytical Engine Reports & History Statuses ==========
-    function openReportsMenu() {
-        closeM('settings-modal');
-        document.getElementById('reports-menu-modal').style.display = 'flex';
-    }
-
-    function openPanel(id) {
-        closeM('reports-menu-modal');
-        document.getElementById(id).style.display = 'flex';
-        if (id === 'income-modal') {
-            loadEarningsChart();
-        } else if (id === 'history-modal') {
-            filterHistory('today');
-        }
-    }
-
-    // ========== STREAMING_CHUNK: Ride History Realizations with Scheduled Flag Outputs ==========
-    function filterHistory(filter) {
-        const rides = readStoredList('rides');
-        const list = document.getElementById('history-list');
-        if (!list) return;
-
-        let filtered = [...rides];
-        const now = new Date();
-
-        if (filter === 'today') {
-            filtered = rides.filter(r => new Date(r.time).toDateString() === now.toDateString());
-        } else if (filter === 'week') {
-            const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-            filtered = rides.filter(r => new Date(r.time) >= oneWeekAgo);
-        } else if (filter === 'month') {
-            const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-            filtered = rides.filter(r => new Date(r.time) >= oneMonthAgo);
-        }
-
-        // Sort reverse chronological
-        filtered.sort((a,b) => b.time - a.time);
-
-        list.innerHTML = filtered.map(r => {
-            const isBookingCompleted = r.bookingId !== undefined && r.bookingId !== null;
-            const badgeHTML = isBookingCompleted 
-                ? `<span class="px-2 py-0.5 text-[8px] font-bold text-emerald-400 bg-emerald-500/10 rounded-full">🟢 Trip Completed</span>`
-                : `<span class="px-2 py-0.5 text-[8px] font-bold text-blue-400 bg-blue-500/10 rounded-full">🚗 Regular Ride</span>`;
-
-            return `
-                <div class="p-3 bg-slate-950 border ${isBookingCompleted ? 'border-emerald-950/50' : 'border-slate-850'} rounded-xl space-y-2">
-                    <div class="flex justify-between items-center border-b border-slate-900 pb-1.5">
-                        <div>
-                            <span class="font-extrabold text-slate-300 text-xs">${r.id}</span>
-                            <span class="text-[9px] text-slate-500 block">${new Date(r.time).toLocaleString()}</span>
-                        </div>
-                        <div class="flex flex-col items-end gap-1">
-                            <span class="text-xs text-emerald-400 font-extrabold">Rs.${r.fare.toFixed(2)}</span>
-                            ${badgeHTML}
-                        </div>
-                    </div>
-                    <div class="text-[9px] text-slate-400 space-y-1">
-                        <div>📍 Pickup: <b class="text-slate-300">${r.from}</b></div>
-                        <div>🏁 Drop: <b class="text-slate-300">${r.to}</b></div>
-                        <div class="flex justify-between text-[8px] text-slate-500">
-                            <span>📏 KM: ${r.km.toFixed(2)}</span>
-                            <span>Payment: ${r.payment ? r.payment.method : 'Cash'}</span>
-                        </div>
-                    </div>
-                    <div class="flex gap-2 pt-1">
-                        <button class="flex-1 py-1 bg-slate-900 border border-slate-800 text-slate-300 rounded-lg text-[9px] font-bold" onclick="showReceipt(${JSON.stringify(r).replace(/"/g, '&quot;')}, true)">🖨️ Reprint Bill</button>
-                    </div>
-                </div>
-            `;
-        }).join('') || '<div class="text-slate-500 py-10 text-center">කිසිදු ධාවන සටහනක් හමු නොවිණි.</div>';
-    }
-
-    function showReportTab(tab) {
-        currentReportType = tab;
-        const rides = readStoredList('rides');
-        const container = document.getElementById('report-container');
-        if (!container) return;
-
-        let totalRides = 0;
-        let totalCash = 0;
-        let totalRevenue = 0;
-
-        rides.forEach(r => {
-            totalRides++;
-            totalRevenue += parseFloat(r.fare) || 0;
-            if (r.payment && r.payment.method === 'Cash') {
-                totalCash += parseFloat(r.fare) || 0;
-            }
-        });
-
-        container.innerHTML = `
-            <div class="bg-slate-950 border border-slate-850 p-3 rounded-xl space-y-2.5 text-center text-xs">
-                <div class="text-[9px] text-slate-500 font-extrabold uppercase">SUMMARY METRICS</div>
-                <div class="grid grid-cols-3 gap-2 divide-x divide-slate-800">
-                    <div>Rides:<br><strong class="text-blue-400">${totalRides}</strong></div>
-                    <div>Revenue:<br><strong class="text-emerald-400">Rs.${totalRevenue.toFixed(0)}</strong></div>
-                    <div>Cash Hand:<br><strong class="text-amber-400">Rs.${totalCash.toFixed(0)}</strong></div>
-                </div>
-            </div>
-            <div class="max-h-36 overflow-y-auto divide-y divide-slate-850 custom-scrollbar pr-1 pt-1 space-y-1">
-                ${rides.map(r => {
-                    const isCompleted = r.bookingId !== undefined && r.bookingId !== null;
-                    return `
-                        <div class="flex justify-between items-center py-2 text-[9px] border-b border-slate-850/60">
-                            <div>
-                                <span class="font-bold text-slate-300 block">${r.id}</span>
-                                <span class="text-slate-500 block">${new Date(r.time).toLocaleDateString()}</span>
-                                ${isCompleted ? '<span class="text-[7px] text-emerald-400 uppercase font-bold">🟢 Trip Completed</span>' : ''}
-                            </div>
-                            <div class="text-right">
-                                <span class="text-emerald-400 font-extrabold font-mono block">Rs.${r.fare.toFixed(2)}</span>
-                                <span class="text-slate-400 text-[8px] block">${r.payment ? r.payment.method : 'Cash'}</span>
-                            </div>
-                        </div>
-                    `;
-                }).join('') || '<div class="text-slate-500 py-10 text-center">No transaction records found.</div>'}
-            </div>
-        `;
-    }
-
-    function loadEarningsChart() {
-        const rides = readStoredList('rides');
-        const ctx = document.getElementById('earningsChart')?.getContext('2d');
-        if (!ctx) return;
-
-        let dataPoints = {};
-        rides.forEach(r => {
-            const day = new Date(r.time).toLocaleDateString();
-            dataPoints[day] = (dataPoints[day] || 0) + parseFloat(r.fare);
-        });
-
-        const labels = Object.keys(dataPoints).slice(-7);
-        const data = Object.values(dataPoints).slice(-7);
-
-        // Render cumulative total stats
-        const cumulative = rides.reduce((acc,curr) => acc + (parseFloat(curr.fare) || 0), 0);
-        const todayStr = new Date().toLocaleDateString();
-        const todayVal = dataPoints[todayStr] || 0;
-        
-        document.getElementById('stat-today').innerText = `Rs.${todayVal.toFixed(2)}`;
-        document.getElementById('stat-total').innerText = `Rs.${cumulative.toFixed(2)}`;
-
-        if (window.earningsChartObj) window.earningsChartObj.destroy();
-        window.earningsChartObj = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: 'Revenue (LKR)',
-                    data: data,
-                    borderColor: '#2563eb',
-                    backgroundColor: 'rgba(37,99,235,0.1)',
-                    borderWidth: 2,
-                    tension: 0.3,
-                    fill: true
-                }]
-            },
-            options: {
-                responsive: true,
-                scales: {
-                    x: { ticks: { color: '#94a3b8', font: { size: 8 } } },
-                    y: { ticks: { color: '#94a3b8', font: { size: 8 } } }
-                },
-                plugins: { legend: { display: false } }
-            }
-        });
-    }
-
-    function downloadCSV() {
-        const rides = readStoredList('rides');
-        let csv = "ID,Date,Fare,Distance,Mode,Payment\n" + rides.map(r => `"${r.id}","${new Date(r.time).toLocaleDateString()}","${r.fare}","${r.km.toFixed(2)}","${r.mode}","${r.payment ? r.payment.method : 'Cash'}"`).join("\n");
-        let a = document.createElement('a');
-        a.href = URL.createObjectURL(new Blob([csv], {type: 'text/csv'}));
-        a.download = 'revenue_logs.csv';
-        a.click();
-        showToast('Analytical Data Exported', 'success');
-    }
-
-    // ========== Fuel registries log features ==========
-    let fuelLogs = readStoredList('fuel_logs');
-    
-    function openFuelLogModal() {
-        closeM('settings-modal');
-        document.getElementById('fuel-modal').style.display = 'flex';
-        document.getElementById('fuel-date').valueAsDate = new Date();
-        renderFuelLogsList();
-    }
-    
-    function addFuelLog() {
-        const date = document.getElementById('fuel-date').value;
-        const liters = parseFloat(document.getElementById('fuel-liters').value) || 0;
-        const price = parseFloat(document.getElementById('fuel-price').value) || 0;
-        const total = liters * price;
-        const notes = document.getElementById('fuel-notes').value.trim();
-        
-        if (!date || liters <= 0 || price <= 0) {
-            showToast("කරුණාකර සියලු විස්තර නිවැරදිව පුරවන්න!", "error");
-            return;
-        }
-        
-        const newLog = { id: Date.now(), date, liters, price, total, notes };
-        fuelLogs.unshift(newLog);
-        localStorage.setItem('fuel_logs', JSON.stringify(fuelLogs));
-        
-        document.getElementById('fuel-liters').value = '';
-        document.getElementById('fuel-price').value = '';
-        document.getElementById('fuel-total').value = '';
-        document.getElementById('fuel-notes').value = '';
-        
-        showToast("ඉන්ධන සටහන සාර්ථකව එක් කරන ලදී!", "success");
-        renderFuelLogsList();
-    }
-    
-    document.getElementById('fuel-liters')?.addEventListener('input', calculateFuelTotal);
-    document.getElementById('fuel-price')?.addEventListener('input', calculateFuelTotal);
-    
-    function calculateFuelTotal() {
-        const liters = parseFloat(document.getElementById('fuel-liters').value) || 0;
-        const price = parseFloat(document.getElementById('fuel-price').value) || 0;
-        document.getElementById('fuel-total').value = (liters * price).toFixed(2);
-    }
-    
-    function deleteFuelLog(id) {
-        fuelLogs = fuelLogs.filter(log => log.id !== id);
-        localStorage.setItem('fuel_logs', JSON.stringify(fuelLogs));
-        showToast("ඉන්ධන සටහන ඉවත් කරන ලදී.", "info");
-        renderFuelLogsList();
-    }
-    
-    function renderFuelLogsList() {
-        const container = document.getElementById('fuel-list');
-        if (!container) return;
-        
-        container.innerHTML = fuelLogs.map(log => `
-            <div class="flex justify-between items-center py-2 text-[9px] border-b border-slate-850">
-                <div>
-                    <span class="font-bold text-slate-300 block">${log.liters.toFixed(2)} Liters (${new Date(log.date).toLocaleDateString()})</span>
-                    <span class="text-slate-500 text-[8px] block">${log.notes || 'ඉන්ධන පිරවීම'}</span>
-                </div>
-                <div class="flex items-center gap-3">
-                    <span class="text-emerald-400 font-bold font-mono">Rs.${log.total.toFixed(0)}</span>
-                    <button class="text-red-500 font-bold hover:text-red-400" onclick="deleteFuelLog(${log.id})">✕</button>
-                </div>
-            </div>
-        `).join('') || '<div class="text-slate-500 py-6 text-center">ඉන්ධන සටහන් කිසිවක් නොමැත.</div>';
-    }
-
-    // ========== Repair Servicing Record Log features ==========
-    let repairLogs = readStoredList('repair_logs');
-    
-    function openRepairLogModal() {
-        closeM('settings-modal');
-        document.getElementById('repair-modal').style.display = 'flex';
-        document.getElementById('repair-date').valueAsDate = new Date();
-        renderRepairLogsList();
-    }
-    
-    function addRepairLog() {
-        const date = document.getElementById('repair-date').value;
-        const desc = document.getElementById('repair-desc').value.trim();
-        const cost = parseFloat(document.getElementById('repair-cost').value) || 0;
-        const garage = document.getElementById('repair-garage').value.trim();
-        const notes = document.getElementById('repair-notes').value.trim();
-        
-        if (!date || !desc || cost <= 0) {
-            showToast("කරුණාකර සියලු විස්තර නිවැරදිව පුරවන්න!", "error");
-            return;
-        }
-        
-        const newLog = { id: Date.now(), date, desc, cost, garage, notes };
-        repairLogs.unshift(newLog);
-        localStorage.setItem('repair_logs', JSON.stringify(repairLogs));
-        
-        document.getElementById('repair-desc').value = '';
-        document.getElementById('repair-cost').value = '';
-        document.getElementById('repair-garage').value = '';
-        document.getElementById('repair-notes').value = '';
-        
-        showToast("සේවා සටහන සාර්ථකව එක් කරන ලදී!", "success");
-        renderRepairLogsList();
-    }
-    
-    function deleteRepairLog(id) {
-        repairLogs = repairLogs.filter(log => log.id !== id);
-        localStorage.setItem('repair_logs', JSON.stringify(repairLogs));
-        showToast("සේවා සටහන ඉවත් කරන ලදී.", "info");
-        renderRepairLogsList();
-    }
-    
-    function renderRepairLogsList() {
-        const container = document.getElementById('repair-list');
-        if (!container) return;
-        
-        container.innerHTML = repairLogs.map(log => `
-            <div class="flex justify-between items-center py-2 text-[9px] border-b border-slate-850">
-                <div>
-                    <span class="font-bold text-slate-300 block">${log.desc} (${new Date(log.date).toLocaleDateString()})</span>
-                    <span class="text-slate-500 text-[8px] block">${log.garage || 'ප්‍රධාන ගරාජය'}</span>
-                </div>
-                <div class="flex items-center gap-3">
-                    <span class="text-emerald-400 font-bold font-mono">Rs.${log.cost.toFixed(0)}</span>
-                    <button class="text-red-500 font-bold hover:text-red-400" onclick="deleteRepairLog(${log.id})">✕</button>
-                </div>
-            </div>
-        `).join('') || '<div class="text-slate-500 py-6 text-center">සේවා සටහන් කිසිවක් නොමැත.</div>';
-    }
-
-    // ========== Cumulative Analytical Calculations ==========
-    function openFuelReport() {
-        closeM('fuel-modal');
-        document.getElementById('fuel-report-modal').style.display = 'flex';
-        updateFuelReport();
-    }
-    function updateFuelReport() {
-        const container = document.getElementById('fuel-report-container');
-        if (!container) return;
-        
-        const totalCost = fuelLogs.reduce((acc,curr) => acc + curr.total, 0);
-        const totalLiters = fuelLogs.reduce((acc,curr) => acc + curr.liters, 0);
-        
-        container.innerHTML = `
-            <div class="bg-slate-950 p-3.5 border border-slate-850 rounded-xl space-y-2 text-center text-xs">
-                <div class="text-[9px] text-blue-500 font-bold uppercase">FUEL REPORT METRICS</div>
-                <div class="grid grid-cols-2 gap-2 text-center">
-                    <div>Total Cost:<br><b class="text-emerald-400 text-xs">Rs.${totalCost.toFixed(0)}</b></div>
-                    <div>Total Liters:<br><b class="text-blue-400 text-xs">${totalLiters.toFixed(1)} L</b></div>
-                </div>
-            </div>
-            <div class="py-2.5 max-h-36 overflow-y-auto divide-y divide-slate-850 custom-scrollbar pr-1">
-                ${fuelLogs.map(log => `
-                    <div class="flex justify-between items-center py-2 text-[9px] border-b border-slate-850">
-                        <div>
-                            <span class="font-bold text-slate-300 block">${log.liters.toFixed(1)} Liters</span>
-                            <span class="text-slate-500 block">${new Date(log.date).toLocaleDateString()}</span>
-                        </div>
-                        <div class="text-right">
-                            <span class="text-emerald-400 font-bold font-mono block">Rs.${log.total.toFixed(0)}</span>
-                            <span class="text-slate-500 text-[8px] block">Rs.${log.price.toFixed(0)}/L</span>
-                        </div>
-                    </div>
-                `).join('')}
-            </div>
-        `;
-    }
-    
-    function openRepairReport() {
-        closeM('repair-modal');
-        document.getElementById('repair-report-modal').style.display = 'flex';
-        updateRepairReport();
-    }
-    function updateRepairReport() {
-        const container = document.getElementById('repair-report-container');
-        if (!container) return;
-        
-        const totalCost = repairLogs.reduce((acc,curr) => acc + curr.cost, 0);
-        
-        container.innerHTML = `
-            <div class="bg-slate-950 p-3.5 border border-slate-850 rounded-xl space-y-2 text-center text-xs">
-                <div class="text-[9px] text-blue-500 font-bold uppercase">REPAIR COMPILATION SUMMARY</div>
-                <div>Total Maintenance Cost:<br><b class="text-red-400 text-sm font-black">Rs.${totalCost.toFixed(2)}</b></div>
-            </div>
-            <div class="py-2.5 max-h-36 overflow-y-auto divide-y divide-slate-850 custom-scrollbar pr-1">
-                ${repairLogs.map(log => `
-                    <div class="flex justify-between items-center py-2 text-[9px] border-b border-slate-850">
-                        <div>
-                            <span class="font-bold text-slate-300 block">${log.desc}</span>
-                            <span class="text-slate-500 block">${new Date(log.date).toLocaleDateString()} (${log.garage})</span>
-                        </div>
-                        <span class="text-red-400 font-bold font-mono">Rs.${log.cost.toFixed(0)}</span>
-                    </div>
-                `).join('')}
-            </div>
-        `;
-    }
-
-    function openProfitReport() {
-        closeM('reports-menu-modal');
-        document.getElementById('profit-report-modal').style.display = 'flex';
-        updateProfitReport();
-    }
-    
-    function updateProfitReport() {
-        const rides = readStoredList('rides');
-        const totalRevenue = rides.reduce((acc,curr) => acc + (parseFloat(curr.fare) || 0), 0);
-        const totalFuel = fuelLogs.reduce((acc,curr) => acc + curr.total, 0);
-        const totalRepairs = repairLogs.reduce((acc,curr) => acc + curr.cost, 0);
-        const netProfit = totalRevenue - (totalFuel + totalRepairs);
-        
-        const container = document.getElementById('profit-report-container');
-        if (container) {
-            container.innerHTML = `
-                <div class="bg-slate-950 p-3 border border-slate-850 rounded-xl space-y-2 text-xs">
-                    <div class="text-[8px] text-blue-500 font-bold uppercase text-center mb-1">FINANCIAL PROFILE</div>
-                    <div class="grid grid-cols-3 gap-2 text-center divide-x divide-slate-800">
-                        <div>Revenue:<br><strong class="text-emerald-400 text-[11px]">Rs.${totalRevenue.toFixed(0)}</strong></div>
-                        <div>Expenses:<br><strong class="text-red-400 text-[11px]">Rs.${(totalFuel + totalRepairs).toFixed(0)}</strong></div>
-                        <div>Net Profit:<br><strong class="text-blue-400 text-[11px]">Rs.${netProfit.toFixed(0)}</strong></div>
-                    </div>
-                </div>
-            `;
-        }
-        
-        const ctx = document.getElementById('profitChart')?.getContext('2d');
-        if (ctx) {
-            if (window.profitChartObj) window.profitChartObj.destroy();
-            window.profitChartObj = new Chart(ctx, {
-                type: 'doughnut',
-                data: {
-                    labels: ['Revenue', 'Fuel', 'Repairs'],
-                    datasets: [{
-                        data: [totalRevenue, totalFuel, totalRepairs],
-                        backgroundColor: ['#10b981', '#ef4444', '#f59e0b'],
-                        borderWidth: 0
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    plugins: { legend: { labels: { color: '#fff', font: { size: 8 } } } }
-                }
-            });
-        }
-    }
-
-    // ========== Local Dynamic Backups Engine ==========
-    let localBackups = readStoredList('local_backups');
-    
-    function triggerRollingBackup() {
-        const backup = {
-            id: Date.now(),
-            date: new Date().toISOString(),
-            rides: readStoredList('rides'),
-            fuel: readStoredList('fuel_logs'),
-            repairs: readStoredList('repair_logs'),
-            settings: SETTINGS,
-            schedules: schedules
-        };
-        
-        localBackups.unshift(backup);
-        if (localBackups.length > 5) localBackups.pop(); 
-        localStorage.setItem('local_backups', JSON.stringify(localBackups));
-        renderLocalBackupsList();
-        
-        if (document.getElementById('auto-backup-toggle')?.checked) {
-            downloadSystemBackupFile();
-        }
-    }
-    
-    function renderLocalBackupsList() {
-        const container = document.getElementById('local-backups-list');
-        if (!container) return;
-        
-        container.innerHTML = localBackups.map(b => `
-            <div class="flex justify-between items-center p-2 bg-slate-950 border border-slate-850 rounded-xl text-[9px] text-slate-300">
-                <span>Backup: ${new Date(b.date).toLocaleString()}</span>
-                <button class="px-2 py-1 bg-blue-600 hover:bg-blue-500 rounded text-white font-bold" onclick="restoreFromLocalBackup(${b.id})">Restore</button>
-            </div>
-        `).join('') || '<div class="text-slate-500 py-4 text-center">No local backups stored.</div>';
-    }
-    
-    function restoreFromLocalBackup(id) {
-        if (sTime || pendingRideData) { showToast('Finish the current ride and payment before restoring.', 'warning'); return; }
-        const backup = localBackups.find(b => b.id === id);
-        if (backup && confirm("මෙම Backup එක නැවත පිහිටුවීමට අවශ්‍ය බව ස්ථිරද?")) {
-            localStorage.setItem('rides', JSON.stringify(backup.rides || []));
-            localStorage.setItem('fuel_logs', JSON.stringify(backup.fuel || []));
-            localStorage.setItem('repair_logs', JSON.stringify(backup.repairs || []));
-            localStorage.setItem('amt_schedules', JSON.stringify(backup.schedules || []));
-            schedules = backup.schedules || [];
-            SETTINGS = backup.settings || SETTINGS;
-            localStorage.setItem('settings', JSON.stringify(SETTINGS));
-            
-            showToast("Backup Restored Successfully!", "success");
-            location.reload();
-        }
-    }
-    
-    function downloadSystemBackupFile() {
-        const backup = {
-            rides: readStoredList('rides'),
-            fuel: readStoredList('fuel_logs'),
-            repairs: readStoredList('repair_logs'),
-            settings: SETTINGS,
-            schedules: schedules
-        };
-        
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(new Blob([JSON.stringify(backup, null, 2)], {type: 'application/json'}));
-        a.download = `AMT_SYSTEM_BACKUP_${Date.now()}.json`;
-        a.click();
-        showToast('System Backup JSON File Exported!', 'success');
-    }
-    
-    function restoreSystemFromFile() {
-        const filePicker = document.getElementById('backup-file-picker');
-        if (!filePicker || filePicker.files.length === 0) {
-            showToast("කරුණාකර පළමුව Backup JSON ගොනුවක් තෝරන්න!", "error");
-            return;
-        }
-        
-        const file = filePicker.files[0];
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            try {
-                const data = JSON.parse(e.target.result);
-                if (Array.isArray(data.rides) && Array.isArray(data.fuel) && Array.isArray(data.repairs) && data.settings && typeof data.settings === 'object' && !Array.isArray(data.settings) && (!data.schedules || Array.isArray(data.schedules))) {
-                    if (sTime || pendingRideData) { showToast('Finish the current ride and payment before restoring.', 'warning'); return; }
-                    if (!confirm('Replace current records with this backup?')) return;
-                    localStorage.setItem('rides', JSON.stringify(data.rides));
-                    localStorage.setItem('fuel_logs', JSON.stringify(data.fuel));
-                    localStorage.setItem('repair_logs', JSON.stringify(data.repairs));
-                    localStorage.setItem('amt_schedules', JSON.stringify(data.schedules || []));
-                    schedules = data.schedules || [];
-                    SETTINGS = data.settings;
-                    localStorage.setItem('settings', JSON.stringify(SETTINGS));
-                    
-                    showToast("පද්ධති දත්ත සාර්ථකව පිහිටුවන ලදී!", "success");
-                    location.reload();
-                } else {
-                    showToast("වැරදි Backup ආකෘතියකි! (Invalid JSON structure)", "error");
-                }
-            } catch (err) {
-                showToast("ගොනුව කියවීමට නොහැක! (Read error)", "error");
-            }
-        };
-        reader.readAsText(file);
-    }
-    
-    function toggleAutoBackupPref() {
-        localStorage.setItem('auto_backup_pref', document.getElementById('auto-backup-toggle').checked);
-        showToast("Auto Backup settings updated", "success");
-    }
-
-    // ========== STREAMING_CHUNK: Bootup Sequence initialization ==========
-    window.onload = function () {
-        if (trackingQuery) return;
-        const savedSettings = localStorage.getItem('settings');
-        if (savedSettings) {
-            try { SETTINGS = { ...SETTINGS, ...JSON.parse(savedSettings) }; } catch(e){}
-        }
-        
-        document.getElementById('set-app-name').value = SETTINGS.appName;
-        document.getElementById('set-receipt-header').value = SETTINGS.receiptName;
-        document.getElementById('set-base').value = SETTINGS.base;
-        document.getElementById('set-rate').value = SETTINGS.rate;
-        document.getElementById('set-wait').value = SETTINGS.waitRate;
-        document.getElementById('set-night').value = SETTINGS.nightPercent;
-        document.getElementById('set-pwd').value = SETTINGS.password;
-        document.getElementById('display-app-name').innerHTML = escapeHTML(SETTINGS.appName).replace(" ", "<br>");
-        
-        const autoBackupCheck = document.getElementById('auto-backup-toggle');
-        if (autoBackupCheck) {
-            autoBackupCheck.checked = localStorage.getItem('auto_backup_pref') === 'true';
-        }
-        
-        checkScheduleReminders();
-        renderLocalBackupsList();
-        
-        // Default execution mode
-        setMode('auto');
-        loadRideState();
-        try { pendingRideData = JSON.parse(localStorage.getItem('amt_pending_payment') || 'null'); } catch(e) {}
-        if (pendingRideData) openPaymentPopup();
-        document.querySelectorAll('input, select').forEach(el => el.addEventListener('change', saveRideState));
-        window.addEventListener('pagehide', saveRideState);
-        setInterval(checkScheduleReminders, 30000);
-        
-        if ('Notification' in window && Notification.permission === 'default') {
-            Notification.requestPermission();
-        }
-    };
-
-    // ========== HELPER ROUTINES ==========
-    function generateTrackingId() { return Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join(''); }
-    function closeM(id) { document.getElementById(id).style.display = 'none'; }
-    function openLogin() { document.getElementById('login-modal').style.display = 'flex'; }
-    function checkLogin() {
-        const pin = document.getElementById('admin-pass').value;
-        if (pin === SETTINGS.password) {
-            document.getElementById('login-modal').style.display = 'none';
-            document.getElementById('admin-pass').value = '';
-            document.getElementById('settings-modal').style.display = 'flex';
-        } else {
-            showToast("වැරදි රහස් පදයකි! (Access Denied)", "error");
-        }
-    }
-    function closeSettingsAndLogout() { document.getElementById('settings-modal').style.display = 'none'; }
-    function openAppSettings() {
-        document.getElementById('settings-modal').style.display = 'none';
-        document.getElementById('app-settings-modal').style.display = 'flex';
-    }
-    function openDatabaseBackupModal() {
-        document.getElementById('settings-modal').style.display = 'none';
-        document.getElementById('db-backup-modal').style.display = 'flex';
-    }
-    
-    function saveSettings() {
-        if (['set-base','set-rate','set-wait','set-night'].some(id => {
-            const val = document.getElementById(id).value;
-            return val.trim() === '' || !Number.isFinite(Number(val)) || Number(val) < 0;
-        })) { showToast('Enter valid non-negative rates.', 'error'); return; }
-        SETTINGS.appName = document.getElementById('set-app-name').value.trim() || SETTINGS.appName;
-        SETTINGS.receiptName = document.getElementById('set-receipt-header').value.trim() || SETTINGS.receiptName;
-        SETTINGS.base = Number(document.getElementById('set-base').value);
-        SETTINGS.rate = Number(document.getElementById('set-rate').value);
-        SETTINGS.waitRate = Number(document.getElementById('set-wait').value);
-        SETTINGS.nightPercent = Number(document.getElementById('set-night').value);
-        SETTINGS.password = document.getElementById('set-pwd').value || SETTINGS.password;
-        
-        localStorage.setItem('settings', JSON.stringify(SETTINGS));
-        document.getElementById('display-app-name').innerHTML = escapeHTML(SETTINGS.appName).replace(" ", "<br>");
-        
-        closeM('app-settings-modal');
-        document.getElementById('settings-modal').style.display = 'flex';
-        updateDisplay();
-        showToast("Configs updated!", "success");
-    }
-
-    function toggleAccordion(id) {
-        const el = document.getElementById(id);
-        if (el) el.classList.toggle('open');
-    }
-    
-    function toggleNightCharge() {
-        nightActive = !nightActive;
-        const btn = document.getElementById('nightBtn');
-        if (nightActive) {
-            btn.innerHTML = '🌙 NIGHT ON';
-            btn.classList.add('bg-indigo-600/20', 'border-indigo-500');
-            showToast("රාත්‍රී ගාස්තු ක්‍රියාත්මකයි (Night Tariff Activated)", "success");
-        } else {
-            btn.innerHTML = '🌙 NIGHT OFF';
-            btn.classList.remove('bg-indigo-600/20', 'border-indigo-500');
-            showToast("රාත්‍රී ගාස්තු අක්‍රීයයි (Night Tariff Deactivated)", "info");
-        }
-        updateDisplay();
-        saveRideState();
-    }
-
-    function resetToNew() {
-        if (confirm("ගමන මුල සිට ආරම්භ කිරීමට (Reset) අවශ්‍ය බව ස්ථිරද?")) {
-            resetDriverAppOnly();
-        }
-    }
-
-    function manualAddDistance(val) {
-        const current = parseFloat(document.getElementById('manual-km-input').value) || 0;
-        document.getElementById('manual-km-input').value = Math.max(0, current + val).toFixed(2);
-        manualKmInputChanged();
-    }
-    
-    function manualKmInputChanged() {
-        const kmVal = Math.max(0, parseFloat(document.getElementById('manual-km-input').value) || 0);
-        totalMeters = kmVal * 1000;
-        updateDisplay();
-    }
-    
-    function setManualDistance() {
-        const kmVal = Math.max(0, parseFloat(document.getElementById('manual-km-input').value) || 0);
-        totalMeters = kmVal * 1000;
-        updateDisplay();
-        saveRideState();
-        showToast(`ගමන් දුර ${kmVal.toFixed(2)} KM ලෙස තහවුරු කරන ලදී.`, "success");
-    }
-
-    // Autocomplete Osm Fallbacks
-    async function searchSriLankaLocations(query) {
-        try {
-            const res = await fetchWithTimeout(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query + ', Sri Lanka')}&accept-language=en&countrycodes=lk`, {
-                headers: { "Accept-Language": "en" }
-            });
-            return await res.json();
-        } catch (e) { return []; }
-    }
-
-    // Open Phone Navigation links
-    function openPhoneNavigation() {
-        if (!currentDestinationAddress) {
-            showToast("ගමනාන්තය තවම සකසා නොමැත!", "error");
-            return;
-        }
-        const url = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(startLocationAddress)}&destination=${encodeURIComponent(currentDestinationAddress)}&travelmode=driving`;
-        window.open(url, '_blank');
-        addSystemLog('INFO', 'Navigation opened', `Destination: ${currentDestinationAddress}`);
-    }
-
-    // ========== Receipt & Print Direct Rendering ==========
-    let activeReceiptObject = null;
-    function showReceipt(ride, isReprint) {
-        activeReceiptObject = ride;
-        document.getElementById('receiptModal').style.display = 'flex';
-        const containerId = `qr-${ride.id}`;
-        
-        document.getElementById('receipt-view').innerHTML = getPerfectReceiptTemplateHTML(ride, isReprint, containerId);
-        
-        // Generate receipt verification QR code
-        setTimeout(() => {
-            const qrContainer = document.getElementById(containerId);
-            if (qrContainer) {
-                qrContainer.innerHTML = '';
-                if (typeof QRCode !== 'undefined') new QRCode(qrContainer, {
-                    text: `https://advancemeetertaxi.com/verify?ride=${ride.id}&fare=${ride.fare}`,
-                    width: 76,
-                    height: 76,
-                    colorDark : "#000000",
-                    colorLight : "#ffffff",
-                    correctLevel : QRCode.CorrectLevel.M
-                });
-            }
-        }, 100);
-    }
-
-    function shareWA() {
-        if (!activeReceiptObject) return;
-        const msg = `*${SETTINGS.appName} OFFICIAL RECEIPT*\n\n` +
-                    `Receipt No: ${activeReceiptObject.id}\n` +
-                    `Date: ${new Date(activeReceiptObject.time).toLocaleString()}\n` +
-                    `From: ${activeReceiptObject.from}\n` +
-                    `To: ${activeReceiptObject.to}\n` +
-                    `Distance: ${activeReceiptObject.km.toFixed(2)} km\n\n` +
-                    `*TOTAL FARE: Rs. ${activeReceiptObject.fare.toFixed(2)}*`;
-        window.open(`https://api.whatsapp.com/send?phone=${activeReceiptObject.mobile}&text=${encodeURIComponent(msg)}`, '_blank');
-    }
-
-    function sendEmailWithAttachment() {
-        if (!activeReceiptObject) return;
-        const subject = `${SETTINGS.appName} - Trip Invoice`;
-        const body = `Official Trip Receipt details: \n\nReceipt Number: ${activeReceiptObject.id}\nTotal Paid: LKR ${activeReceiptObject.fare.toFixed(2)}`;
-        window.open(`mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`);
-    }
-
-    function downloadReceiptPDF() {
-        if (!activeReceiptObject) return;
-        const { jsPDF } = window.jspdf;
-        const doc = new jsPDF({
-            unit: 'mm',
-            format: [80, 180] 
-        });
-        
-        html2canvas(document.getElementById('receipt-view'), { scale: 2 }).then(canvas => {
-            const imgData = canvas.toDataURL('image/png');
-            doc.addImage(imgData, 'PNG', 0, 0, 80, 150);
-            doc.save(`AMT_RECEIPT_${activeReceiptObject.id}.pdf`);
-            showToast('PDF Receipt Saved!', 'success');
-        });
-    }
-
-    function printReceiptDirectly() {
-        window.print();
-    }
-
-    let trackingInterval = null;
-    function startTrackingUpdates() {
-        if (trackingInterval) clearInterval(trackingInterval);
-        trackingInterval = setInterval(() => {
-            if (sTime && currentTrackingId) {
-                broadcastOdometerTelemetry();
-            }
-        }, 15000); 
-    }
-    
-    function stopTrackingUpdates() {
-        if (trackingInterval) {
-            clearInterval(trackingInterval);
-            trackingInterval = null;
-        }
-    }
-
-    function showTrackingPopup() {
-        const link = `${window.location.origin}${window.location.pathname}?track=${currentTrackingId}`;
-        document.getElementById('trackingLinkDisplay').innerText = link;
-        
-        const qrContainer = document.getElementById('trackingQR');
-        qrContainer.innerHTML = '';
-        if (typeof QRCode !== 'undefined') new QRCode(qrContainer, {
-            text: link,
-            width: 128,
-            height: 128
-        });
-        
-        document.getElementById('trackingPopupModal').style.display = 'flex';
-    }
-    
-    function closeTrackingPopup() {
-        document.getElementById('trackingPopupModal').style.display = 'none';
-    }
-    
-    function copyTrackingLink() {
-        const link = document.getElementById('trackingLinkDisplay').innerText;
-        const dummy = document.createElement('textarea');
-        document.body.appendChild(dummy);
-        dummy.value = link;
-        dummy.select();
-        document.execCommand('copy');
-        document.body.removeChild(dummy);
-        showToast('Tracking URL Copied!', 'success');
-    }
-    
-    function shareTrackingWhatsApp() {
-        const link = document.getElementById('trackingLinkDisplay').innerText;
-        const phone = document.getElementById('mobile').value || '';
-        const msg = `🚕 Track my real-time ADVANCE MEETER TAXI journey here:\n${link}`;
-        window.open(`https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(msg)}`, '_blank');
-    }
-
-    function sendNotification(title, body) {
-        if ('Notification' in window && Notification.permission === 'granted') {
-            try { new Notification(title, { body, icon: 'https://placehold.co/128x128/0f172a/2563eb?text=🚕' }); } catch (e) { console.warn('Notification unavailable', e); }
-        }
-    }
-
-    // ========== Passenger Portal Bootstrap ==========
-    const urlParams = new URLSearchParams(window.location.search);
-    const trackingQuery = urlParams.get('track');
-    if (trackingQuery) {
-        document.getElementById('main-driver-view').classList.add('hidden');
-        document.getElementById('passenger-tracking-view').classList.remove('hidden');
-        document.getElementById('track-trip-id').innerText = trackingQuery;
-        
-        bootstrapPassengerTrackerMap();
-        listenToTelemetryStream(trackingQuery);
-    }
-    
-    function bootstrapPassengerTrackerMap() {
-        try {
-            passengerMap = L.map('tracking-map-canvas', { zoomControl: false }).setView([6.9271, 79.8612], 14);
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-                maxZoom: 19
-            }).addTo(passengerMap);
-            
-            passengerMarker = L.marker([6.9271, 79.8612], {
-                icon: L.divIcon({
-                    html: '<div style="font-size: 36px;">🚕</div>',
-                    className: 'live-passenger-icon',
-                    iconSize: [40, 40],
-                    iconAnchor: [20, 20]
-                })
-            }).addTo(passengerMap);
-        } catch(e) {
-            console.error('Passenger Map Initialization failed: ', e);
-        }
-    }
-    
-    function listenToTelemetryStream(trackingId) {
-        const source = new EventSource(`https://ntfy.sh/amt_tracking_${trackingId}/sse`);
-        source.onmessage = function(event) {
-            try {
-                const data = JSON.parse(event.data);
-                const payload = JSON.parse(data.message);
-                
-                if (passengerMarker && passengerMap) {
-                    passengerMarker.setLatLng([payload.lat, payload.lng]);
-                    passengerMap.setView([payload.lat, payload.lng]);
-                }
-                
-                document.getElementById('track-pickup-location').innerText = payload.startAddress;
-                document.getElementById('track-destination').innerText = payload.destination;
-                document.getElementById('track-est-fare').innerText = `LKR ${payload.currentFare.toFixed(2)}`;
-                document.getElementById('track-est-distance').innerText = `${payload.distanceTraveled} km`;
-                document.getElementById('track-ride-mode').innerText = `${payload.mode.toUpperCase()} Mode`;
-                document.getElementById('track-last-update').innerText = new Date(payload.timestamp).toLocaleTimeString();
-                
-                if (payload.status === 'completed') {
-                    document.getElementById('track-status').innerHTML = "🔴 ගමන අවසන් (TRIP COMPLETED)";
-                    document.getElementById('passenger-pdf-btn').classList.remove('hidden');
-                    source.close();
-                }
-            } catch(e) {
-                console.error("Failed to parse telemetry event stream: ", e);
-            }
-        };
-    }
-</script>
+<script src="assets/config.js"></script>
+<script src="assets/session.js"></script>
+<script src="assets/app.js"></script>
 </body>
 </html>
