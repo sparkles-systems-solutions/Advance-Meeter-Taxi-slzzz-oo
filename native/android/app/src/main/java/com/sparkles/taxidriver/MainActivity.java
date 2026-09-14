@@ -5,10 +5,14 @@ import android.app.Activity;
 import android.os.Bundle;
 import android.os.Build;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
 import android.webkit.*;
 import android.net.Uri;
 import android.util.Base64;
+import android.widget.FrameLayout;
+import android.view.ViewGroup;
 import androidx.core.content.FileProvider;
 import org.json.JSONObject;
 import androidx.webkit.WebViewCompat;
@@ -21,16 +25,19 @@ public class MainActivity extends Activity {
  static final String HOST="sparkles-systems-solutions.github.io";
  static final String PATH="/Advance-Meeter-Taxi-slzzz-oo/driver-test/";
  static final int LOCATION_REQUEST=100;
+ static final int FILE_CHOOSER_REQUEST=102;
  WebView web;
+ ValueCallback<Uri[]> filePathCallback;
  boolean pageLoaded=false, hadPreciseLocation=false;
  boolean trusted(String url){if(url==null)return false;Uri u=Uri.parse(url);return "https".equals(u.getScheme())&&HOST.equals(u.getHost())&&u.getPath()!=null&&u.getPath().startsWith(PATH);}
  boolean trustedOrigin(String origin){if(origin==null)return false;Uri u=Uri.parse(origin);return "https".equals(u.getScheme())&&HOST.equals(u.getHost());}
  boolean hasPreciseLocation(){return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED;}
  @Override public void onCreate(Bundle state){
-  super.onCreate(state);web=new WebView(this);setContentView(web);
-  web.setOnApplyWindowInsetsListener((view,insets)->{view.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());return insets;});
+  super.onCreate(state);getWindow().setStatusBarColor(Color.rgb(15,23,42));getWindow().setNavigationBarColor(Color.rgb(15,23,42));
+  FrameLayout root=new FrameLayout(this);web=new WebView(this);root.addView(web,new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.MATCH_PARENT));setContentView(root);
+  root.setFitsSystemWindows(true);root.setOnApplyWindowInsetsListener((view,insets)->{view.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());return insets;});root.post(root::requestApplyInsets);
   web.getSettings().setJavaScriptEnabled(true);web.getSettings().setDomStorageEnabled(true);web.getSettings().setGeolocationEnabled(true);
-  web.getSettings().setAllowFileAccess(false);web.getSettings().setAllowContentAccess(false);
+  web.getSettings().setAllowFileAccess(false);web.getSettings().setAllowContentAccess(true);
   web.getSettings().setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
   WebViewCompat.addWebMessageListener(web,"TaxiNative",Collections.singleton("https://"+HOST),(view,message,origin,mainFrame,reply)->{if(mainFrame&&trusted(view.getUrl()))handle(message.getData());});
   web.setWebViewClient(new WebViewClient(){
@@ -40,7 +47,13 @@ public class MainActivity extends Activity {
     return true;
    }
   });
-  web.setWebChromeClient(new WebChromeClient(){@Override public void onGeolocationPermissionsShowPrompt(String origin,GeolocationPermissions.Callback cb){cb.invoke(origin,trustedOrigin(origin)&&hasPreciseLocation(),false);}});
+  web.setWebChromeClient(new WebChromeClient(){
+   @Override public void onGeolocationPermissionsShowPrompt(String origin,GeolocationPermissions.Callback cb){cb.invoke(origin,trustedOrigin(origin)&&hasPreciseLocation(),false);}
+   @Override public boolean onShowFileChooser(WebView view,ValueCallback<Uri[]> callback,FileChooserParams params){
+    if(filePathCallback!=null)filePathCallback.onReceiveValue(null);filePathCallback=callback;
+    Intent pick=new Intent(Intent.ACTION_GET_CONTENT);pick.addCategory(Intent.CATEGORY_OPENABLE);pick.setType("image/*");startActivityForResult(Intent.createChooser(pick,"Choose business logo"),FILE_CHOOSER_REQUEST);return true;
+   }
+  });
   hadPreciseLocation=hasPreciseLocation();
   if(hadPreciseLocation)loadApp();else requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION,Manifest.permission.ACCESS_COARSE_LOCATION},LOCATION_REQUEST);
  }
@@ -54,6 +67,10 @@ public class MainActivity extends Activity {
   super.onResume();boolean precise=hasPreciseLocation();
   if(pageLoaded&&precise&&!hadPreciseLocation){hadPreciseLocation=true;web.reload();}
  }
+ @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
+  super.onActivityResult(requestCode,resultCode,data);if(requestCode!=FILE_CHOOSER_REQUEST||filePathCallback==null)return;
+  filePathCallback.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(resultCode,data));filePathCallback=null;
+ }
  void handle(String json){int id=0;try{
   if(!trusted(web.getUrl()))throw new Exception("Untrusted page");
   JSONObject m=new JSONObject(json);id=m.getInt("id");String action=m.getString("action");JSONObject d=m.optJSONObject("data");
@@ -61,6 +78,9 @@ public class MainActivity extends Activity {
    if(checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)!=PackageManager.PERMISSION_GRANTED){requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION,Manifest.permission.ACCESS_COARSE_LOCATION},1);throw new Exception("Allow precise location, then start again");}
    MeterService.begin(this,d);startForegroundService(new Intent(this,MeterService.class));
   }else if(action.equals("configure")){MeterService.configure(d);}
+  else if(action.equals("saveSession")){String sessionToken=d.optString("token");JSONObject sessionUser=d.optJSONObject("user");if(!sessionToken.matches("^[a-f0-9]{64}$")||sessionUser==null)throw new Exception("Invalid session");getSharedPreferences("secure_session",MODE_PRIVATE).edit().putString("active",d.toString()).apply();reply(id,new JSONObject().put("ok",true));return;}
+  else if(action.equals("loadSession")){String saved=getSharedPreferences("secure_session",MODE_PRIVATE).getString("active","");reply(id,saved.isEmpty()?new JSONObject():new JSONObject(saved));return;}
+  else if(action.equals("clearSession")){getSharedPreferences("secure_session",MODE_PRIVATE).edit().remove("active").apply();reply(id,new JSONObject().put("ok",true));return;}
   else if(action.equals("sharePdf")){sharePdf(d);reply(id,new JSONObject().put("ok",true));return;}
   else if(action.equals("stop")){stopService(new Intent(this,MeterService.class));MeterService.finish(this);}
   else if(!action.equals("snapshot"))throw new Exception("Unknown native action");

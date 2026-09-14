@@ -1,6 +1,7 @@
 import UIKit
 import WebKit
 import CoreLocation
+import Security
 
 @main class AppDelegate: UIResponder, UIApplicationDelegate {
  var window: UIWindow?
@@ -28,16 +29,29 @@ final class DriverController: UIViewController, WKScriptMessageHandler, WKNaviga
   do{
    let d=m["data"] as? [String:Any] ?? [:]
    switch m["action"] as? String {
-    case "start":try meter.start(d)
-    case "configure":meter.config=d
-    case "stop":meter.stop()
-    case "snapshot":break
-    case "sharePdf":try sharePdf(d)
+    case "start":try meter.start(d);result=meter.state
+    case "configure":meter.config=d;result=meter.state
+    case "stop":meter.stop();result=meter.state
+    case "snapshot":result=meter.state
+    case "sharePdf":try sharePdf(d);result=["ok":true]
+    case "saveSession":try saveSession(d);result=["ok":true]
+    case "loadSession":result=loadSession()
+    case "clearSession":clearSession();result=["ok":true]
     default:throw NSError(domain:"Unknown action",code:1)
-   };result=meter.state
+   }
   }catch{result=["error":error.localizedDescription]}
   if let bytes=try? JSONSerialization.data(withJSONObject:result),let json=String(data:bytes,encoding:.utf8){web.evaluateJavaScript("window.taxiNativeReply && window.taxiNativeReply(\(id),\(json))")}
  }
+ func saveSession(_ d:[String:Any])throws{
+  guard let token=d["token"] as? String,token.range(of:"^[a-f0-9]{64}$",options:.regularExpression) != nil,d["user"] is [String:Any] else{throw NSError(domain:"Invalid session",code:1)}
+  let value=try JSONSerialization.data(withJSONObject:d),query:[String:Any]=[kSecClass as String:kSecClassGenericPassword,kSecAttrService as String:"com.sparkles.taxidriver.session",kSecAttrAccount as String:"active"]
+  SecItemDelete(query as CFDictionary);var add=query;add[kSecValueData as String]=value;guard SecItemAdd(add as CFDictionary,nil)==errSecSuccess else{throw NSError(domain:"Could not save session",code:1)}
+ }
+ func loadSession()->[String:Any]{
+  let query:[String:Any]=[kSecClass as String:kSecClassGenericPassword,kSecAttrService as String:"com.sparkles.taxidriver.session",kSecAttrAccount as String:"active",kSecReturnData as String:true,kSecMatchLimit as String:kSecMatchLimitOne]
+  var item:CFTypeRef?;guard SecItemCopyMatching(query as CFDictionary,&item)==errSecSuccess,let value=item as? Data,let result=(try? JSONSerialization.jsonObject(with:value)) as? [String:Any] else{return [:]};return result
+ }
+ func clearSession(){let query:[String:Any]=[kSecClass as String:kSecClassGenericPassword,kSecAttrService as String:"com.sparkles.taxidriver.session",kSecAttrAccount as String:"active"];SecItemDelete(query as CFDictionary)}
  func sharePdf(_ d:[String:Any])throws{
   guard let encoded=d["base64"] as? String,encoded.count<8_000_000,let data=Data(base64Encoded:encoded) else{throw NSError(domain:"Invalid receipt PDF",code:1)}
   let raw=(d["name"] as? String) ?? "taxi-receipt.pdf",name=raw.replacingOccurrences(of:"[^A-Za-z0-9._-]",with:"_",options:.regularExpression),url=FileManager.default.temporaryDirectory.appendingPathComponent(name);try data.write(to:url,options:.atomic)

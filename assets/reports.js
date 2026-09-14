@@ -29,7 +29,7 @@ window.openAccountReports = async function() {
  display(JSON.parse(cloudStore.getItem('rides')||'[]'),'My reports & CRM');
  const admin=document.getElementById('admin-accounts');admin.replaceChildren();
  if(cloudStore.user?.role!=='admin')return;
- admin.append(node('h4','Driver accounts'));
+ admin.append(node('h4','Driver accounts'),node('p','Create a separate driver account here. Send that driver the same app link plus the one-time key shown after creation. The driver sees only their own rides; the admin can open every driver report here.'));
  const username=document.createElement('input');username.placeholder='New driver username';username.autocomplete='off';
  admin.append(username,button('Create driver',async()=>{
   const r=await cloudStore.request('/admin/users',{method:'POST',body:JSON.stringify({username:username.value,role:'driver'})});

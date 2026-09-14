@@ -1,4 +1,5 @@
-/* Account data and bearer tokens remain in memory. Server writes are versioned. */
+/* Server writes are versioned. Native shells securely retain only the short-lived
+   session token; the one-time login key is never stored by this page. */
 window.cloudStore = (() => {
  let values={},version=0,token='',user=null,dirty=0,saved=0,flight=null,timer=null,blocked=false;
  const base=(window.AMT_CONFIG?.apiBase||'').replace(/\/$/,'');
@@ -23,24 +24,35 @@ window.cloudStore = (() => {
  }
  function schedule(){dirty++;status('Unsaved changes');clearTimeout(timer);timer=setTimeout(()=>flush().catch(()=>{}),700);}
  function exportUnsaved(){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(values,null,2)],{type:'application/json'}));a.download='taxi-unsaved-state.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
+ async function activateSession(result){
+  token=result.token;user=result.user;
+  const state=await request('/state');values=state.data;version=state.version;dirty=0;saved=0;blocked=false;
+  document.getElementById('account-password').value='';document.getElementById('account-gate').hidden=true;document.getElementById('main-driver-view').hidden=false;
+  document.getElementById('account-name').textContent=user.username+' · '+user.role;status('Saved to server');
+ }
  async function connect(){
   const credentialLabel=document.querySelector('label[for="account-password"]');
   if(credentialLabel)credentialLabel.textContent=window.AMT_CONFIG?.credentialLabel||'Password';
+  if(window.nativeMeter?.supported){
+   try{
+    const savedSession=await window.nativeMeter.call('loadSession');
+    if(savedSession&&/^[a-f0-9]{64}$/.test(savedSession.token||'')&&savedSession.user){await activateSession(savedSession);return;}
+   }catch(e){token='';user=null;try{await window.nativeMeter.call('clearSession');}catch(_){} }
+  }
   document.getElementById('account-gate').hidden=false;
   document.getElementById('main-driver-view').hidden=true;
   return new Promise(resolve=>{
    document.getElementById('account-form').onsubmit=async event=>{
     event.preventDefault();const button=document.getElementById('account-submit');button.disabled=true;
     try{
-     const result=await request('/login',{method:'POST',body:JSON.stringify({username:document.getElementById('account-user').value,password:document.getElementById('account-password').value})});token=result.token;user=result.user;
-     const state=await request('/state');values=state.data;version=state.version;dirty=0;saved=0;blocked=false;
-     document.getElementById('account-password').value='';document.getElementById('account-gate').hidden=true;document.getElementById('main-driver-view').hidden=false;
-     document.getElementById('account-name').textContent=user.username+' · '+user.role;status('Saved to server');resolve();
+     const result=await request('/login',{method:'POST',body:JSON.stringify({username:document.getElementById('account-user').value,password:document.getElementById('account-password').value})});
+     await activateSession(result);
+     if(window.nativeMeter?.supported)try{await window.nativeMeter.call('saveSession',{token:result.token,user:result.user});}catch(e){status('Signed in; automatic sign-in could not be saved.');}resolve();
     }catch(e){token='';document.getElementById('account-error').textContent=e.message;}finally{button.disabled=false;}
    };
   });
  }
- async function logout(){try{await flush();await request('/logout',{method:'POST',body:'{}'});token='';values={};location.reload();}catch(e){status(e.message);}}
+ async function logout(){try{await flush();await request('/logout',{method:'POST',body:'{}'});}catch(e){status(e.message);}finally{if(window.nativeMeter?.supported)try{await window.nativeMeter.call('clearSession');}catch(_){}token='';user=null;values={};location.reload();}}
  window.addEventListener('beforeunload',e=>{if(dirty!==saved){e.preventDefault();e.returnValue='';}});
  window.addEventListener('online',()=>flush().catch(()=>{}));
  function configureNative(data){if(window.nativeMeter?.supported)return window.nativeMeter.call('configure',{...data,token});return Promise.resolve();}

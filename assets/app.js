@@ -215,7 +215,9 @@ let paymentSaving=false, settingsSaving=false;
         document.documentElement.lang=language==='en'?'en':'si';
         document.body.classList.toggle('lang-english',language==='en');
         document.querySelectorAll('[data-en][data-bi]').forEach(el=>{el.textContent=el.dataset[language];});
+        document.querySelectorAll('[data-placeholder-en][data-placeholder-bi]').forEach(el=>{el.placeholder=el.dataset[`placeholder${language==='en'?'En':'Bi'}`];});
     }
+    function previewLanguage(value){SETTINGS.language=value==='en'?'en':'bi';applyLanguage();}
     function renderBusinessIdentity() {
         document.getElementById('display-app-name').innerHTML=escapeHTML(SETTINGS.appName).replace(/\s+/,"<br>");
         const logo=document.getElementById('main-logo-area');
@@ -672,6 +674,7 @@ let paymentSaving=false, settingsSaving=false;
             setupAutocomplete('sch-end', 'sch-end-suggestions');
         }
         updateDisplay();
+        applyLanguage();
         showToast(`${mode.toUpperCase()} Navigation Mode Enabled`, 'info');
     }
 

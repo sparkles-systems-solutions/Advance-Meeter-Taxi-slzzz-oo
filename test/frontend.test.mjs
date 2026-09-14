@@ -24,6 +24,14 @@ test('Frontend, session adapter and database integration',async t=>{
   const s=await ctx.cloudStore.request('/state');assert.equal(JSON.parse(s.data.settings).appName,'QA Taxi');
   assert.equal(els['sync-warning'].hidden,true);assert.equal(els['save-settings-button'].disabled,false);
  });
+ await t.test('Language selector previews English immediately',()=>{
+  const translated=element();translated.dataset={en:'English label',bi:'සිංහල / English'};
+  const placeholder=element();placeholder.dataset={placeholderEn:'Pickup location',placeholderBi:'පිටත්වන ස්ථානය (Pickup)'};
+  document.querySelectorAll=selector=>selector==='[data-en][data-bi]'?[translated]:selector==='[data-placeholder-en][data-placeholder-bi]'?[placeholder]:[];
+  run("previewLanguage('en')");assert.equal(translated.textContent,'English label');assert.equal(placeholder.placeholder,'Pickup location');
+  run("previewLanguage('bi')");assert.equal(translated.textContent,'සිංහල / English');
+  document.querySelectorAll=()=>[];
+ });
  await t.test('Settings failure stays visible; no false success or modal close',async()=>{
   run('openAppSettings()');const flush=ctx.cloudStore.flush;ctx.cloudStore.flush=async()=>{throw Error('QA offline');};
   els['set-app-name'].value='Unsaved QA';await run('saveSettings()');
