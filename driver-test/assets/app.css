@@ -14,8 +14,10 @@
         body {
             font-family: 'Inter', -apple-system, sans-serif;
             background: linear-gradient(145deg, #090d16 0%, #0f172a 100%);
-            padding-top: env(safe-area-inset-top);
-            padding-bottom: env(safe-area-inset-bottom);
+            padding-top: max(8px, env(safe-area-inset-top)) !important;
+            padding-right: max(8px, env(safe-area-inset-right)) !important;
+            padding-bottom: max(8px, env(safe-area-inset-bottom)) !important;
+            padding-left: max(8px, env(safe-area-inset-left)) !important;
         }
         .neon-glow-blue {
             text-shadow: 0 0 10px rgba(37, 99, 235, 0.5), 0 0 20px rgba(37, 99, 235, 0.2);

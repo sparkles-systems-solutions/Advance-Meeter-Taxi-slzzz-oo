@@ -205,11 +205,37 @@ let paymentSaving=false, settingsSaving=false;
     // ========== STREAMING_CHUNK: Core State Initializations & Expanded Modals ==========
     let sTime = null, watchId = null, totalMeters = 0, lastLat = null, lastLon = null, currentLat = null, currentLng = null, currentRID = "", nightActive = false, gpsReady = false, currentMode = "auto", pendingRideData = null, selectedMethod = "cash", currentLocationAddress = "", currentLocationLat = null, currentLocationLon = null, startLocationAddress = "", currentDestinationAddress = "", mapObj = null, mapMarker = null, mapPickerField = null, currentTrackingId = null;
     let deliveryPickupName="", deliveryPickupPhone="", deliveryDeliveryName="", deliveryDeliveryPhone="";
-    let SETTINGS = { base: 100, rate: 80, waitRate: 5, nightPercent: 10, appName: "ADVANCE MEETER TAXI", receiptName: "AMT OFFICIAL RECEIPT", logo: null };
+    let SETTINGS = { base: 100, rate: 80, waitRate: 5, nightPercent: 10, appName: "ADVANCE MEETER TAXI", receiptName: "AMT OFFICIAL RECEIPT", logoData: "", address: "", businessMobile: "", email: "", website: "", receiptFooter: "Thank you for riding with us!", language: "bi", linkDays: 30 };
     let currentReportType = "daily";
     let passengerMap = null, passengerMarker = null;
     let latestPassengerPayload = null;
     let driverPopupMap = null, driverPopupMarker = null;
+    function applyLanguage() {
+        const language=SETTINGS.language==='en'?'en':'bi';
+        document.documentElement.lang=language==='en'?'en':'si';
+        document.body.classList.toggle('lang-english',language==='en');
+        document.querySelectorAll('[data-en][data-bi]').forEach(el=>{el.textContent=el.dataset[language];});
+    }
+    function renderBusinessIdentity() {
+        document.getElementById('display-app-name').innerHTML=escapeHTML(SETTINGS.appName).replace(/\s+/,"<br>");
+        const logo=document.getElementById('main-logo-area');
+        logo.innerHTML=SETTINGS.logoData?`<img alt="" src="${SETTINGS.logoData}" class="w-full h-full object-contain rounded-xl">`:'🚕';
+        const preview=document.getElementById('set-logo-preview');
+        preview.hidden=!SETTINGS.logoData;if(SETTINGS.logoData)preview.src=SETTINGS.logoData;
+        applyLanguage();
+    }
+    function clearBusinessLogo(){SETTINGS.logoData='';renderBusinessIdentity();}
+    function handleLogoUpload(input) {
+        const file=input.files?.[0];if(!file)return;
+        if(!/^image\/(png|jpeg|webp)$/.test(file.type)||file.size>5*1024*1024){showToast('Choose a PNG, JPEG or WebP logo below 5 MB.','error');input.value='';return;}
+        const reader=new FileReader();reader.onerror=()=>showToast('Logo could not be read.','error');reader.onload=()=>{
+            const image=new Image();image.onerror=()=>showToast('Invalid logo image.','error');image.onload=()=>{
+                const scale=Math.min(1,512/Math.max(image.width,image.height)),canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(image.width*scale));canvas.height=Math.max(1,Math.round(image.height*scale));
+                canvas.getContext('2d').drawImage(image,0,0,canvas.width,canvas.height);const data=canvas.toDataURL('image/jpeg',.78);
+                if(data.length>220000){showToast('Logo remains too large. Choose a simpler image.','error');return;}SETTINGS.logoData=data;renderBusinessIdentity();
+            };image.src=reader.result;
+        };reader.readAsDataURL(file);
+    }
     
     // Track execution of a loaded schedule booking
     let activeBookingId = null; 
@@ -322,6 +348,7 @@ let paymentSaving=false, settingsSaving=false;
         try { await cloudStore.request('/track/'+trackingShareToken,{method:'PUT',body:JSON.stringify({lat:currentLat,lng:currentLng,currentFare:calcFare(),distanceTraveled:(totalMeters/1000).toFixed(2),status:forceStatus,mode:currentMode})}); }
         catch(e) { cloudStore.reportStatus('Tracking update failed: '+e.message); }
     }
+    function receiptSettingsSnapshot(){return Object.fromEntries(['base','rate','waitRate','nightPercent','appName','receiptName','address','businessMobile','email','website','receiptFooter','language'].map(k=>[k,SETTINGS[k]??'']));}
 
     function loadRideState() {
         let saved = cloudStore.getItem('amt_ride_state');
@@ -398,7 +425,6 @@ let paymentSaving=false, settingsSaving=false;
                 trackRide();
                 document.getElementById('nav-container').classList.remove('hidden');
                 startTrackingUpdates();
-                openDriverMapPopup();
             }
             
             document.getElementById('restore-banner').classList.add('hidden');
@@ -989,7 +1015,7 @@ let paymentSaving=false, settingsSaving=false;
 
         pendingRideData = { 
             id: currentRID,
-            tariff: { ...SETTINGS },
+            tariff: receiptSettingsSnapshot(),
             startTime: sTime.getTime(),
             fare: fare, 
             km: km, 
@@ -1004,6 +1030,9 @@ let paymentSaving=false, settingsSaving=false;
             mode: activeBookingId ? "Booked Ride" : (currentMode === 'auto' ? "Auto" : (currentMode === 'gps' ? "GPS" : (currentMode === 'manual' ? "Manual" : "Delivery"))), 
             time: Date.now(),
             trackingId: currentTrackingId,
+            trackingToken: trackingShareToken,
+            finalLat: Number.isFinite(finalLat) ? finalLat : null,
+            finalLng: Number.isFinite(finalLon) ? finalLon : null,
             bookingId: activeBookingId // Link booking ID
         }; 
         
@@ -1176,6 +1205,7 @@ let paymentSaving=false, settingsSaving=false;
         if (!list.some(r => r.id === ride.id)) list.push(ride);
         try { cloudStore.setItem('rides', JSON.stringify(list)); cloudStore.removeItem('amt_pending_payment'); await cloudStore.flush(); }
         catch(e) { showToast('Payment is not saved to the server. Check connection / sync status and retry.', 'error'); return; }
+        await publishCompletedReceipt(ride);
         pendingRideData = null;
         cloudStore.removeItem('amt_pending_payment');
         closePaymentPopup();
@@ -1184,6 +1214,13 @@ let paymentSaving=false, settingsSaving=false;
         showReceipt(ride, false);
         showToast('ගෙවීම් සුරැකිණි. Receipt එක සූදානම්.', 'success');
         } finally {paymentSaving=false;}
+    }
+
+    async function publishCompletedReceipt(ride){
+        const lat=Number.isFinite(ride?.finalLat)?ride.finalLat:(Number.isFinite(currentLat)?currentLat:lastLat),lng=Number.isFinite(ride?.finalLng)?ride.finalLng:(Number.isFinite(currentLng)?currentLng:lastLon);
+        if(!ride?.trackingToken||!Number.isFinite(lat)||!Number.isFinite(lng))return;
+        try{await cloudStore.request('/track/'+ride.trackingToken,{method:'PUT',body:JSON.stringify({lat,lng,currentFare:Number(ride.fare),distanceTraveled:Number(ride.km).toFixed(2),status:'completed',mode:ride.mode,receiptId:ride.id,linkDays:SETTINGS.linkDays})});}
+        catch(e){showToast('Payment saved. Passenger receipt link will retry when this receipt is reopened.','warning');}
     }
 
     // ========== Structuring receipt layout with 100% parity ==========
@@ -1217,7 +1254,10 @@ let paymentSaving=false, settingsSaving=false;
             <div style="font-family: monospace; font-size: 11px; color: #000; line-height: 1.4; background: #fff; width: 100%; box-sizing: border-box; padding: 4px 6px;">
                 ${isReprint ? `<div style="background: #ef4444; color: #fff; text-align: center; padding: 3px; font-weight: bold; border-radius: 6px; margin-bottom: 8px; text-transform: uppercase; font-size: 9px;">📋 REPRINT DUPLICATE</div>` : ''}
                 
-                <div style="text-align: center; font-weight: bold; font-size: 13px; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.5px;">${escapeHTML(tariff.receiptName || SETTINGS.receiptName)}</div>
+                ${SETTINGS.logoData||tariff.logoData?`<div style="text-align:center;margin-bottom:6px"><img alt="Business logo" src="${SETTINGS.logoData||tariff.logoData}" style="display:inline-block;max-width:70px;max-height:55px;object-fit:contain"></div>`:''}
+                <div style="text-align: center; font-weight: bold; font-size: 14px; text-transform: uppercase;">${escapeHTML(tariff.appName || SETTINGS.appName)}</div>
+                <div style="text-align: center; font-weight: bold; font-size: 12px; text-transform: uppercase; margin-bottom: 3px; letter-spacing: 0.5px;">${escapeHTML(tariff.receiptName || SETTINGS.receiptName)}</div>
+                <div style="text-align:center;font-size:9px;line-height:1.25;margin-bottom:6px">${[tariff.address,tariff.businessMobile,tariff.email,tariff.website].filter(Boolean).map(escapeHTML).join('<br>')}</div>
                 <div style="border-bottom: 1px dashed #000; margin-bottom: 8px;"></div>
                 
                 <table style="width: 100%; border-collapse: collapse; margin-bottom: 8px; font-size: 11px;">
@@ -1310,7 +1350,7 @@ let paymentSaving=false, settingsSaving=false;
                 </div>
                 
                 <div style="text-align: center; font-size: 9px; color: #555; margin-top: 10px;">
-                    Thank you for riding with us!<br>Powered by Advance Meeter Taxi
+                    ${escapeHTML(tariff.receiptFooter || SETTINGS.receiptFooter || 'Thank you for riding with us!')}<br>Powered by Advance Meeter Taxi
                 </div>
             </div>
         `;
@@ -2283,8 +2323,14 @@ let paymentSaving=false, settingsSaving=false;
         document.getElementById('set-rate').value = SETTINGS.rate;
         document.getElementById('set-wait').value = SETTINGS.waitRate;
         document.getElementById('set-night').value = SETTINGS.nightPercent;
-
-        document.getElementById('display-app-name').innerHTML = escapeHTML(SETTINGS.appName).replace(" ", "<br>");
+        document.getElementById('set-address').value = SETTINGS.address || '';
+        document.getElementById('set-mobile').value = SETTINGS.businessMobile || '';
+        document.getElementById('set-email').value = SETTINGS.email || '';
+        document.getElementById('set-website').value = SETTINGS.website || '';
+        document.getElementById('set-receipt-footer').value = SETTINGS.receiptFooter || '';
+        document.getElementById('set-language').value = SETTINGS.language === 'en' ? 'en' : 'bi';
+        document.getElementById('set-link-days').value = String([7,30,90].includes(Number(SETTINGS.linkDays))?SETTINGS.linkDays:30);
+        renderBusinessIdentity();
         
         const autoBackupCheck = document.getElementById('auto-backup-toggle');
         if (autoBackupCheck) {
@@ -2336,6 +2382,11 @@ let paymentSaving=false, settingsSaving=false;
             return val.trim() === '' || !Number.isFinite(Number(val)) || Number(val) < 0 || Number(val)>1000000;
         })) { showToast('Enter valid non-negative rates.', 'error'); return; }
         if(['set-app-name','set-receipt-header'].some(id=>document.getElementById(id).value.trim().length>120)){showToast('Names must be 120 characters or fewer.','error');return;}
+        const fieldLimits={'set-address':300,'set-mobile':40,'set-email':120,'set-website':200,'set-receipt-footer':300};
+        if(Object.entries(fieldLimits).some(([id,n])=>document.getElementById(id).value.trim().length>n)){showToast('A business profile field is too long.','error');return;}
+        const email=document.getElementById('set-email').value.trim(),website=document.getElementById('set-website').value.trim();
+        if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){showToast('Enter a valid business email.','error');return;}
+        if(website&&!/^https:\/\//i.test(website)){showToast('Website must begin with https://','error');return;}
         settingsSaving=true;
         document.getElementById('save-settings-button').disabled=true;
         try {
@@ -2345,17 +2396,24 @@ let paymentSaving=false, settingsSaving=false;
         SETTINGS.rate = Number(document.getElementById('set-rate').value);
         SETTINGS.waitRate = Number(document.getElementById('set-wait').value);
         SETTINGS.nightPercent = Number(document.getElementById('set-night').value);
+        SETTINGS.address = document.getElementById('set-address').value.trim();
+        SETTINGS.businessMobile = document.getElementById('set-mobile').value.trim();
+        SETTINGS.email = document.getElementById('set-email').value.trim();
+        SETTINGS.website = document.getElementById('set-website').value.trim();
+        SETTINGS.receiptFooter = document.getElementById('set-receipt-footer').value.trim();
+        SETTINGS.language = document.getElementById('set-language').value === 'en' ? 'en' : 'bi';
+        SETTINGS.linkDays = Number(document.getElementById('set-link-days').value);
 
         
         cloudStore.setItem('settings', JSON.stringify(SETTINGS));
         await cloudStore.flush();
-        document.getElementById('display-app-name').innerHTML = escapeHTML(SETTINGS.appName).replace(" ", "<br>");
+        renderBusinessIdentity();
         
         closeM('app-settings-modal');
         document.getElementById('settings-modal').style.display = 'flex';
         updateDisplay();
         showToast("Configs updated!", "success");
-        } catch(e) {showToast('Configurations are not saved: '+e.message,'error');}
+        } catch(e) {cloudStore.reportStatus('NOT SAVED: '+e.message);showToast('Configurations are not saved: '+e.message,'error');}
         finally {settingsSaving=false;document.getElementById('save-settings-button').disabled=false;}
     }
 
@@ -2439,6 +2497,7 @@ let paymentSaving=false, settingsSaving=false;
     let activeReceiptObject = null;
     function showReceipt(ride, isReprint) {
         activeReceiptObject = ride;
+        if(ride.trackingToken)publishCompletedReceipt(ride);
         document.getElementById('receiptModal').style.display = 'flex';
         const containerId = `qr-${ride.id}`;
         
@@ -2450,7 +2509,7 @@ let paymentSaving=false, settingsSaving=false;
             if (qrContainer) {
                 qrContainer.innerHTML = '';
                 try { if (typeof QRCode !== 'undefined') new QRCode(qrContainer, {
-                    text: `AMT Receipt: ${ride.id} | LKR ${Number(ride.fare).toFixed(2)}`,
+                    text: ride.trackingToken ? trackingPublicUrl(ride.trackingToken) : `AMT Receipt: ${ride.id} | LKR ${Number(ride.fare).toFixed(2)}`,
                     width: 76,
                     height: 76,
                     colorDark : "#000000",
@@ -2473,26 +2532,32 @@ let paymentSaving=false, settingsSaving=false;
         window.open(`https://api.whatsapp.com/send?phone=${activeReceiptObject.mobile}&text=${encodeURIComponent(msg)}`, '_blank');
     }
 
-    function sendEmailWithAttachment() {
+    async function receiptPdfBlob(element) {
+        if (!window.jspdf || typeof html2canvas === 'undefined') throw Error('PDF libraries are not available while offline');
+        const canvas=await html2canvas(element,{scale:2,backgroundColor:'#ffffff',useCORS:true});
+        const height=canvas.height*80/canvas.width,doc=new window.jspdf.jsPDF({unit:'mm',format:[80,Math.max(100,height+4)]});
+        doc.addImage(canvas.toDataURL('image/jpeg',.92),'JPEG',0,0,80,height);return doc.output('blob');
+    }
+    function downloadBlob(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1500);}
+    async function downloadElementPDF(element,name){try{downloadBlob(await receiptPdfBlob(element),name);showToast('Receipt PDF downloaded.','success');}catch(e){showToast(e.message+'. Use Print / Save as PDF.','error');}}
+    const blobBase64=blob=>new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result).split(',')[1]);r.onerror=reject;r.readAsDataURL(blob);});
+    async function sendEmailWithAttachment() {
         if (!activeReceiptObject) return;
-        const subject = `${SETTINGS.appName} - Trip Invoice`;
-        const body = `Official Trip Receipt details: \n\nReceipt Number: ${activeReceiptObject.id}\nTotal Paid: LKR ${activeReceiptObject.fare.toFixed(2)}`;
-        window.open(`mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`);
+        const name=`AMT_RECEIPT_${activeReceiptObject.id}.pdf`,subject=`${SETTINGS.appName} - Trip Invoice`,body=`Your paid taxi receipt ${activeReceiptObject.id} is attached for testing. Total paid: LKR ${Number(activeReceiptObject.fare).toFixed(2)}.`;
+        try{
+            const blob=await receiptPdfBlob(document.getElementById('receipt-view'));
+            if(window.nativeMeter?.supported){await window.nativeMeter.call('sharePdf',{base64:await blobBase64(blob),name,title:subject,text:body});return;}
+            const file=new File([blob],name,{type:'application/pdf'});
+            if(navigator.share&&(!navigator.canShare||navigator.canShare({files:[file]}))){await navigator.share({title:subject,text:body,files:[file]});return;}
+            downloadBlob(blob,name);window.location.href=`mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body+'\n\nThe PDF was downloaded; attach '+name+' to this email.')}`;
+        }catch(e){if(e.name!=='AbortError')showToast('Receipt share failed: '+e.message,'error');}
     }
 
-    async function downloadReceiptPDF() {
-        if (!activeReceiptObject) return;
-        if (!window.jspdf || typeof html2canvas === 'undefined') { showToast('PDF libraries unavailable. Use Print / Save as PDF.', 'warning'); return; }
-        try {
-            const canvas = await html2canvas(document.getElementById('receipt-view'), { scale: 2, backgroundColor: '#ffffff' });
-            const height = canvas.height * 80 / canvas.width;
-            const doc = new window.jspdf.jsPDF({ unit:'mm', format:[80, Math.max(100,height+4)] });
-            doc.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, 80, height);
-            doc.save(`AMT_RECEIPT_${activeReceiptObject.id}.pdf`);
-        } catch(e) { showToast('PDF export failed. Use Print / Save as PDF.', 'error'); }
-    }
+    async function downloadReceiptPDF() {if(activeReceiptObject)await downloadElementPDF(document.getElementById('receipt-view'),`AMT_RECEIPT_${activeReceiptObject.id}.pdf`);}
 
-    function printReceiptDirectly() {
+    async function printReceiptDirectly() {
+        if(!activeReceiptObject)return;
+        if(window.nativeMeter?.supported){await sendEmailWithAttachment();showToast('Choose Print from the system share sheet.','info');return;}
         window.print();
     }
 
@@ -2516,16 +2581,17 @@ let paymentSaving=false, settingsSaving=false;
     async function showTrackingPopup() {
         if (!sTime || !document.getElementById('share-location').checked) { showToast('Start a ride and enable location sharing first.', 'info'); return; }
         try {
-            if(!trackingShareToken){const result=await cloudStore.request('/track',{method:'POST',body:'{}'});trackingShareToken=result.token;currentTrackingId=result.token;saveRideState();}
+            if(!trackingShareToken){const result=await cloudStore.request('/track',{method:'POST',body:JSON.stringify({rideId:currentTrackingId||generateTrackingId()})});trackingShareToken=result.token;saveRideState();}
             await broadcastOdometerTelemetry();
-            const url=new URL(location.href);url.search='';url.hash='';url.searchParams.set('track',trackingShareToken);
-            document.getElementById('trackingLinkDisplay').textContent=url.href;
+            const url=trackingPublicUrl(trackingShareToken);
+            document.getElementById('trackingLinkDisplay').textContent=url;
             const qr=document.getElementById('trackingQR');qr.innerHTML='';
-            if(typeof QRCode!=='undefined') new QRCode(qr,{text:url.href,width:128,height:128});
+            if(typeof QRCode!=='undefined') new QRCode(qr,{text:url,width:128,height:128});
             closeM('settings-modal');
             document.getElementById('trackingPopupModal').style.display='flex';
         } catch(e) { showToast('Could not create a tracking link: '+e.message,'error'); }
     }
+    function trackingPublicUrl(token){const url=new URL(location.href);url.search='';url.hash='';url.searchParams.set('track',token);return url.href;}
     
     function closeTrackingPopup() {
         document.getElementById('trackingPopupModal').style.display = 'none';
@@ -2605,7 +2671,8 @@ let paymentSaving=false, settingsSaving=false;
                 document.getElementById('track-ride-mode').textContent=String(payload.mode||'ride').toUpperCase()+' Mode';
                 document.getElementById('track-last-update').textContent=new Date(payload.timestamp).toLocaleTimeString();
                 document.getElementById('track-status').textContent=payload.status==='completed'?'Trip completed':'Live ride';
-                if(payload.status==='completed'){stopped=true;document.getElementById('passenger-pdf-btn').classList.remove('hidden');}
+                if(payload.status==='completed'&&payload.receipt){stopped=true;document.getElementById('passenger-pdf-btn').classList.remove('hidden');const view=document.getElementById('passenger-receipt-view');view.classList.remove('hidden');const business=payload.receipt.business||{};view.innerHTML=getPerfectReceiptTemplateHTML({...payload.receipt,tariff:{...SETTINGS,...business},mobile:''},false,'passenger-receipt-qr');setTimeout(()=>{const q=document.getElementById('passenger-receipt-qr');if(q&&typeof QRCode!=='undefined')new QRCode(q,{text:location.href,width:76,height:76});},50);}
+                else if(payload.status==='completed'){document.getElementById('track-status').textContent='Payment is being finalized';}
             } catch(e) {document.getElementById('track-status').textContent=e.message;if(e.status===404)stopped=true;}
             finally {if(!stopped)setTimeout(poll,15000);}
         }
@@ -2760,14 +2827,10 @@ let paymentSaving=false, settingsSaving=false;
         document.body.classList.add('printing-report');window.print();
         document.body.classList.remove('printing-report');summary.remove();
     }
-    function downloadPassengerReceiptPDF() {
+    async function downloadPassengerReceiptPDF() {
         const p=latestPassengerPayload;
-        if (!p || p.status !== 'completed') return;
-        if (!window.jspdf) { showToast('PDF unavailable. Try again when connected to the internet.', 'warning'); return; }
-        const doc=new window.jspdf.jsPDF();
-        doc.setFontSize(18);doc.text('Taxi Trip Summary',14,22);doc.setFontSize(11);
-        doc.text([`Tracking ID: ${p.id}`,`Distance: ${p.distanceTraveled} km`,`Fare: LKR ${Number(p.currentFare).toFixed(2)}`,`Completed: ${new Date(p.timestamp).toLocaleString()}`,'','This summary does not confirm payment.','Ask the driver for your payment receipt.'],14,35);
-        doc.save('taxi-trip-summary.pdf');
+        if (!p?.receipt) return;
+        await downloadElementPDF(document.getElementById('passenger-receipt-view'),`RECEIPT_${p.receipt.id}.pdf`);
     }
     function updateMobileViewport() {
         const viewport=window.visualViewport;
