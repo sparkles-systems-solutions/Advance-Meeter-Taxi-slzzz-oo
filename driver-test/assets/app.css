@@ -1,0 +1,164 @@
+
+        :root {
+            --primary: #1a4a9e;
+            --primary-gradient: linear-gradient(135deg, #1a4a9e, #2563eb);
+            --secondary: #2ecc71;
+            --secondary-gradient: linear-gradient(135deg, #2ecc71, #27ae60);
+            --accent: #e74c3c;
+            --dark: #1e293b;
+            --white: #ffffff;
+            --radius: 20px;
+            --radius-lg: 28px;
+            --radius-xl: 40px;
+        }
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: linear-gradient(145deg, #090d16 0%, #0f172a 100%);
+            padding-top: env(safe-area-inset-top);
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+        .neon-glow-blue {
+            text-shadow: 0 0 10px rgba(37, 99, 235, 0.5), 0 0 20px rgba(37, 99, 235, 0.2);
+        }
+        .neon-glow-green {
+            text-shadow: 0 0 10px rgba(46, 204, 113, 0.5), 0 0 20px rgba(46, 204, 113, 0.2);
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: rgba(30, 41, 59, 0.5);
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(148, 163, 184, 0.3);
+            border-radius: 4px;
+        }
+        .collapsible-card {
+            background: #0f172a;
+            border: 1px solid #1e293b;
+            border-radius: 24px;
+            overflow: hidden;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .collapsible-content {
+            max-height: 0;
+            opacity: 0;
+            overflow: hidden;
+            transition: max-height 0.30s ease-out, opacity 0.2s ease, padding 0.30s ease;
+        }
+        .collapsible-card.open {
+            border-color: #3b82f6;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+        }
+        .collapsible-card.open .collapsible-content {
+            max-height: 800px;
+            opacity: 1;
+            padding-top: 4px;
+        }
+        #report-print-view { display:none; }
+        @media print {
+            @page { size:80mm 297mm; margin:0; }
+            html, body { margin:0 !important; padding:0 !important; background:white !important; color:black !important; width:80mm !important; min-height:0 !important; display:block !important; }
+            body > * { display:none !important; }
+            body > #receiptModal { display:block !important; position:static !important; padding:0 !important; margin:0 !important; background:white !important; width:80mm !important; height:auto !important; }
+            #receiptModal > div { max-height:none !important; width:80mm !important; max-width:none !important; padding:0 !important; overflow:visible !important; box-shadow:none !important; border:0 !important; display:block !important; }
+            #receiptModal #receipt-view { width:76mm !important; padding:2mm !important; margin:0 !important; font:11px/1.4 monospace !important; }
+            #receiptModal .no-print, #receiptModal button { display:none !important; }
+            #receiptModal .overflow-x-auto { overflow:visible !important; border:0 !important; padding:0 !important; }
+            body.printing-report > #receiptModal { display:none !important; }
+            body.printing-report > #report-print-view { display:block !important; width:76mm; padding:2mm; font:11px/1.4 sans-serif; }
+            .report-row { break-inside:avoid; padding:8px 0; border-bottom:1px solid #ccc; }
+        }
+
+    /* Responsive layout: safe areas, dynamic browser bars, touch and keyboard. */
+    @media screen {
+        html { box-sizing: border-box; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+        *, *::before, *::after { box-sizing: inherit; }
+        body { margin: 0; min-width: 0; min-height: 100vh; min-height: 100dvh; align-items: flex-start;
+            padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); }
+        #main-driver-view, #passenger-tracking-view { width: 100%; min-width: 0; margin-inline: auto; }
+        .grid > *, .flex > * { min-width: 0; }
+        button, input, select, textarea { touch-action: manipulation; }
+        button { min-height: 44px; flex-shrink: 0; white-space: normal; overflow-wrap: anywhere; }
+        input:not([type=checkbox]), select, textarea { min-width: 0; max-width: 100%; min-height: 44px; font-size: 16px !important; }
+        input[type=checkbox] { min-width: 22px; min-height: 22px; }
+        button:disabled { cursor: not-allowed; opacity: .55; }
+        :focus-visible { outline: 2px solid #60a5fa; outline-offset: 3px; }
+        .app-dialog { overflow-y: auto !important; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+            top: var(--viewport-top, 0px) !important; bottom: auto !important;
+            height: var(--viewport-height, 100dvh); padding: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)) !important; }
+        .app-dialog > div { flex-shrink: 0; min-width: 0; width: 100%; max-height: calc(var(--viewport-height, 100dvh) - 32px) !important;
+            overflow-y: auto; overscroll-behavior: contain; margin-block: auto; }
+        .app-dialog > div > * { flex-shrink: 0; }
+        .app-dialog h3 { overflow-wrap: anywhere; }
+        .app-dialog button { font-size: 12px; }
+        .collapsible-card.open .collapsible-content { max-height: none; overflow: visible; }
+        .collapsible-card.open { overflow: visible; }
+        #manual-controls .flex { display: grid; grid-template-columns: 44px 44px minmax(0,1fr) 44px 44px; gap: 4px; }
+        #manual-km-input { width: 100%; }
+        #receipt-view { width: 300px !important; max-width: 100%; padding: 6px !important; overflow-wrap: anywhere; }
+        #receipt-view table { table-layout: fixed; }
+        #receipt-view td { overflow-wrap: anywhere; }
+        #trackingLinkDisplay, #current-location-address { overflow-wrap: anywhere; white-space: normal; }
+        #driver-live-tracking-modal > div { height: 100%; max-height: none !important; overflow: auto; }
+        #driver-popup-map-canvas { min-height: 180px; flex: 1 0 180px; }
+        #driver-live-tracking-modal > div > :first-child { gap: 8px; }
+        #popup-disp-km, #popup-disp-fare { font-size: clamp(18px, 5vw, 30px); overflow-wrap: anywhere; }
+        #map { height: clamp(180px, 38dvh, 360px) !important; }
+        #toastContainer { z-index: 100001; max-width: 480px; margin-inline: auto; bottom: max(12px, env(safe-area-inset-bottom)); }
+        #toastContainer > div { animation: none; }
+        #history-list { flex: 1 0 auto; }
+        [id$='-report-container'] { max-height: none; }
+        .report-summary { display: grid; grid-template-columns: repeat(auto-fit,minmax(100px,1fr)); gap: 12px; padding: 12px; border: 1px solid #334155; border-radius: 12px; }
+        .report-summary strong { display:block; color: #34d399; font-size:16px; overflow-wrap:anywhere; }
+        .report-row { padding:12px 0; border-bottom:1px solid #334155; overflow-wrap:anywhere; }
+        .report-table-wrap { max-width:100%; overflow-x:auto; }
+        .report-table { width:100%; border-collapse:collapse; }
+        .report-table th, .report-table td { padding:8px; text-align:left; border-bottom:1px solid #334155; }
+        @media (max-width: 480px) {
+            #main-driver-view, #passenger-tracking-view { padding: 12px; border-radius: 20px; }
+            #main-driver-view label { font-size: 11px; line-height:1.5; }
+            #main-driver-view button { font-size: 11px; }
+            #main-driver-view > div:first-of-type { overflow-wrap: anywhere; }
+            #location-fields > .grid:first-child, #booking-accordion .collapsible-content > .grid,
+            #delivery-accordion .collapsible-content > .grid, #billing-accordion .collapsible-content > .grid,
+            [id$='date-range-panel'] > .grid, #custom-date-range > .grid { grid-template-columns: minmax(0,1fr); }
+            #main-logo-area { flex-shrink:0; }
+            #main-driver-view > .flex:first-of-type { flex-wrap:wrap; gap:8px; }
+            .app-dialog > div { border-radius: 18px; padding: 14px; }
+            .app-dialog .grid-cols-4 { grid-template-columns: repeat(2,minmax(0,1fr)); }
+            #receiptModal > div { padding: 10px; }
+        }
+        @media (max-height: 480px) and (orientation: landscape) {
+            .app-dialog { align-items: flex-start !important; }
+            .app-dialog > div { margin-block:0; }
+            #driver-live-tracking-modal > div { display:grid; grid-template-columns: minmax(0,1fr) minmax(160px,.6fr); gap:8px; }
+            #driver-live-tracking-modal > div > :first-child { grid-column:1 / -1; }
+            #driver-popup-map-canvas { min-height:150px; }
+        }
+        @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior:auto !important; } }
+    }
+    
+
+[hidden] { display:none !important; }
+.account-gate { position:fixed; inset:0; z-index:100002; background:#0f172a; color:#f8fafc; display:grid; place-items:center; padding:20px; }
+.account-gate form { display:grid; gap:12px; width:min(100%,380px); }
+.account-gate input { padding:12px; color:#fff; background:#1e293b; border:1px solid #475569; border-radius:8px; }
+.account-gate button,.account-toolbar button,.share-controls button { padding:10px; border-radius:8px; background:#1d4ed8; color:#fff; }
+.account-toolbar,.share-controls { display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:space-between; margin-bottom:12px; font-size:12px; }
+#sync-status { font-size:12px; overflow-wrap:anywhere; padding:8px 0; }
+#account-error { color:#fca5a5; }
+.account-settings { border:1px solid #334155; border-radius:16px; padding:14px; background:#02061799; min-width:0; }
+.account-settings h4 { font-size:12px; color:#93c5fd; font-weight:800; margin-bottom:12px; }
+.account-settings button { min-height:44px; white-space:normal; }
+.account-settings .account-toolbar > * { min-width:0; overflow-wrap:anywhere; }
+.account-settings .share-controls label { display:flex; gap:8px; align-items:center; min-height:44px; }
+.account-settings input[type=checkbox] { width:20px; height:20px; flex-shrink:0; }
+.account-settings-help { font-size:12px; line-height:1.5; color:#94a3b8; }
+.sync-warning { font-size:12px; line-height:1.5; overflow-wrap:anywhere; padding:10px; margin-bottom:12px; border:1px solid #a16207; border-radius:10px; color:#fde68a; background:#422006; }
+.account-gate { overflow-y:auto; }
+.account-gate input { font-size:16px; min-height:44px; }
+@media (max-width:380px) { .account-settings .account-toolbar button { flex:1 1 110px; } .account-settings .share-controls button { width:100%; } }
+
+#account-reports section{margin:12px 0;padding:12px;border:1px solid #334155;border-radius:12px}#account-reports button{margin:4px;min-height:44px}#account-reports input{color:#fff;background:#0f172a;padding:12px;width:100%;font-size:16px}#account-reports pre,#account-reports p{white-space:pre-wrap;overflow-wrap:anywhere}#account-reports summary{padding:12px 0;cursor:pointer}
