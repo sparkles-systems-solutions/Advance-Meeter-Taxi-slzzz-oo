@@ -15,6 +15,8 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: Record taxi distance and share the active ride with your passenger.
         INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription: Continue recording your active ride when the screen is locked.
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: Listen for driver voice commands.
+        INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: Recognize taxi control commands.
         INFOPLIST_KEY_UIBackgroundModes: location
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         SWIFT_VERSION: '5.0'
@@ -24,3 +26,5 @@ targets:
         UIBackgroundModes: [location]
         NSLocationWhenInUseUsageDescription: Record taxi distance and share the active ride with your passenger.
         NSLocationAlwaysAndWhenInUseUsageDescription: Continue recording an active ride while the screen is locked.
+        NSMicrophoneUsageDescription: Listen for driver voice commands.
+        NSSpeechRecognitionUsageDescription: Recognize taxi control commands.

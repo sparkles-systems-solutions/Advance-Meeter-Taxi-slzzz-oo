@@ -20,6 +20,7 @@ export function validateState(state,previous,role,{historicalImport=false}={}) {
  }
  const settings=JSON.parse(state.settings);const before=JSON.parse(previous.settings);
  if(!settings||typeof settings!=='object'||['base','rate','waitRate','nightPercent'].some(k=>!Number.isFinite(settings[k])||settings[k]<0||settings[k]>1000000))throw Error('Invalid tariff');
+ for(const name of ['deliveryTariff','scheduleTariff'])if(settings[name]!=null&&(!settings[name]||typeof settings[name]!=='object'||['base','rate','waitRate','nightPercent'].some(k=>!Number.isFinite(settings[name][k])||settings[name][k]<0||settings[name][k]>1000000)))throw Error('Invalid '+name);
  if('password' in settings)throw Error('Passwords must not be stored in app settings');
  // State is scoped to the authenticated user; drivers own their tariff settings.
  const textLimits={appName:120,receiptName:120,address:300,businessMobile:40,email:120,website:200,receiptFooter:300};
@@ -37,10 +38,11 @@ export function validateState(state,previous,role,{historicalImport=false}={}) {
   if(old.has(ride.id)){if(JSON.stringify(old.get(ride.id))!==JSON.stringify(ride))throw Error('Paid receipts cannot be modified');continue;}
   if(historicalImport && role==='admin'){ride.imported=true;continue;}
   const {wait=0,disc=0,manualFare=0}=ride;if([wait,disc,manualFare].some(n=>!Number.isFinite(n)||n<0)||wait>120)throw Error('Invalid billing inputs');
-  let amount=(manualFare>0?manualFare:settings.base+Math.max(0,ride.km-1)*settings.rate)+wait*settings.waitRate-disc;
-  if(ride.nightUsed)amount*=1+settings.nightPercent/100;
+  const tariff=ride.mode==='Delivery'?(settings.deliveryTariff||settings):ride.mode==='Booked Ride'?(settings.scheduleTariff||settings):settings;
+  let amount=(manualFare>0?manualFare:tariff.base+Math.max(0,ride.km-1)*tariff.rate)+wait*tariff.waitRate-disc;
+  if(ride.nightUsed)amount*=1+tariff.nightPercent/100;
   if(ride.fare!==Math.max(0,Math.round(amount)))throw Error('Fare does not match server tariff');
-  ride.tariff=Object.fromEntries(['base','rate','waitRate','nightPercent','appName','receiptName','address','businessMobile','email','website','receiptFooter','language'].map(k=>[k,settings[k]??'']));
+  ride.tariff={...Object.fromEntries(['appName','receiptName','address','businessMobile','email','website','receiptFooter','language'].map(k=>[k,settings[k]??''])),...Object.fromEntries(['base','rate','waitRate','nightPercent'].map(k=>[k,tariff[k]??0]))};
  }
  for(const id of old.keys())if(!ids.has(id))throw Error('Paid receipts cannot be deleted');
  for(const [key,fields] of [['fuel_logs',['liters','price','total']],['repair_logs',['cost']]])for(const r of JSON.parse(state[key]||'[]'))if(!r||!Number.isFinite(r.id)||!Number.isFinite(Date.parse(r.date))||fields.some(k=>!Number.isFinite(r[k])||r[k]<0))throw Error('Invalid expense');
@@ -86,7 +88,7 @@ export default {
    const now=Date.now();
    let rideLinksReady=false;
    async function ensureRideLinks(){if(rideLinksReady)return;await q('CREATE TABLE IF NOT EXISTS ride_links(token_hash TEXT PRIMARY KEY,user_id INTEGER NOT NULL REFERENCES users(id),ride_id TEXT NOT NULL,expires INTEGER NOT NULL,payload TEXT NOT NULL,UNIQUE(user_id,ride_id))').run();rideLinksReady=true;}
-   const publicReceipt=(ride,settings={})=>({id:ride.id,time:ride.time,startTime:ride.startTime,km:ride.km,fare:ride.fare,from:String(ride.from||'').slice(0,500),to:String(ride.to||'').slice(0,500),wait:ride.wait||0,disc:ride.disc||0,nightUsed:!!ride.nightUsed,mode:String(ride.mode||'').slice(0,40),payment:{method:String(ride.payment?.method||'Paid').slice(0,40)},business:{base:settings.base||0,rate:settings.rate||0,waitRate:settings.waitRate||0,nightPercent:settings.nightPercent||0,appName:settings.appName||'Taxi',receiptName:settings.receiptName||'Official Receipt',logoData:settings.logoData||'',address:settings.address||'',businessMobile:settings.businessMobile||'',email:settings.email||'',website:settings.website||'',receiptFooter:settings.receiptFooter||'',language:settings.language||'bi'}});
+   const publicReceipt=(ride,settings={})=>({id:ride.id,time:ride.time,startTime:ride.startTime,km:ride.km,fare:ride.fare,from:String(ride.from||'').slice(0,500),to:String(ride.to||'').slice(0,500),wait:ride.wait||0,disc:ride.disc||0,nightUsed:!!ride.nightUsed,mode:String(ride.mode||'').slice(0,40),stops:Array.isArray(ride.stops)?ride.stops.slice(0,5).map(x=>String(x).slice(0,500)):[],payment:{method:String(ride.payment?.method||'Paid').slice(0,40)},business:{base:settings.base||0,rate:settings.rate||0,waitRate:settings.waitRate||0,nightPercent:settings.nightPercent||0,appName:settings.appName||'Taxi',receiptName:settings.receiptName||'Official Receipt',logoData:settings.logoData||'',address:settings.address||'',businessMobile:settings.businessMobile||'',email:settings.email||'',website:settings.website||'',receiptFooter:settings.receiptFooter||'',language:settings.language||'bi'}});
    async function throttle(scope,identity,max) {
     const key=digest(scope+':'+identity);
     const r=await q(`INSERT INTO attempts(key,n,reset) VALUES(?,1,?) ON CONFLICT(key) DO UPDATE SET n=CASE WHEN reset<=? THEN 1 ELSE n+1 END, reset=CASE WHEN reset<=? THEN excluded.reset ELSE reset END RETURNING n`,key,now+900000,now,now).first();

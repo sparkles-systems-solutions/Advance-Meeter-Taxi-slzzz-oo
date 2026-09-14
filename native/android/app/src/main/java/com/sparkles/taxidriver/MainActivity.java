@@ -5,6 +5,7 @@ import android.app.Activity;
 import android.os.Bundle;
 import android.os.Build;
 import android.content.Intent;
+import android.speech.RecognizerIntent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
@@ -17,6 +18,7 @@ import androidx.core.content.FileProvider;
 import org.json.JSONObject;
 import androidx.webkit.WebViewCompat;
 import java.util.Collections;
+import java.util.ArrayList;
 import java.io.File;
 import java.io.FileOutputStream;
 
@@ -26,7 +28,9 @@ public class MainActivity extends Activity {
  static final String PATH="/Advance-Meeter-Taxi-slzzz-oo/driver-test/";
  static final int LOCATION_REQUEST=100;
  static final int FILE_CHOOSER_REQUEST=102;
+ static final int VOICE_REQUEST=103;
  WebView web;
+ int pendingVoiceId=0;
  ValueCallback<Uri[]> filePathCallback;
  boolean pageLoaded=false, hadPreciseLocation=false;
  boolean trusted(String url){if(url==null)return false;Uri u=Uri.parse(url);return "https".equals(u.getScheme())&&HOST.equals(u.getHost())&&u.getPath()!=null&&u.getPath().startsWith(PATH);}
@@ -68,8 +72,9 @@ public class MainActivity extends Activity {
   if(pageLoaded&&precise&&!hadPreciseLocation){hadPreciseLocation=true;web.reload();}
  }
  @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
-  super.onActivityResult(requestCode,resultCode,data);if(requestCode!=FILE_CHOOSER_REQUEST||filePathCallback==null)return;
-  filePathCallback.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(resultCode,data));filePathCallback=null;
+  super.onActivityResult(requestCode,resultCode,data);
+  if(requestCode==VOICE_REQUEST){int id=pendingVoiceId;pendingVoiceId=0;JSONObject out=new JSONObject();try{ArrayList<String> words=resultCode==RESULT_OK&&data!=null?data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS):null;if(words==null||words.isEmpty())out.put("error","No command heard");else out.put("transcript",words.get(0));}catch(Exception e){try{out.put("error",e.getMessage());}catch(Exception ignored){}}reply(id,out);return;}
+  if(requestCode==FILE_CHOOSER_REQUEST&&filePathCallback!=null){filePathCallback.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(resultCode,data));filePathCallback=null;}
  }
  void handle(String json){int id=0;try{
   if(!trusted(web.getUrl()))throw new Exception("Untrusted page");
@@ -78,6 +83,7 @@ public class MainActivity extends Activity {
    if(checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)!=PackageManager.PERMISSION_GRANTED){requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION,Manifest.permission.ACCESS_COARSE_LOCATION},1);throw new Exception("Allow precise location, then start again");}
    MeterService.begin(this,d);startForegroundService(new Intent(this,MeterService.class));
   }else if(action.equals("configure")){MeterService.configure(d);}
+  else if(action.equals("voice")){Intent voice=new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);voice.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);voice.putExtra(RecognizerIntent.EXTRA_LANGUAGE,d.optString("language","en-US"));voice.putExtra(RecognizerIntent.EXTRA_PROMPT,"Say: Start ride, End ride, Navigate or Reports");pendingVoiceId=id;startActivityForResult(voice,VOICE_REQUEST);return;}
   else if(action.equals("saveSession")){String sessionToken=d.optString("token");JSONObject sessionUser=d.optJSONObject("user");if(!sessionToken.matches("^[a-f0-9]{64}$")||sessionUser==null)throw new Exception("Invalid session");getSharedPreferences("secure_session",MODE_PRIVATE).edit().putString("active",d.toString()).apply();reply(id,new JSONObject().put("ok",true));return;}
   else if(action.equals("loadSession")){String saved=getSharedPreferences("secure_session",MODE_PRIVATE).getString("active","");reply(id,saved.isEmpty()?new JSONObject():new JSONObject(saved));return;}
   else if(action.equals("clearSession")){getSharedPreferences("secure_session",MODE_PRIVATE).edit().remove("active").apply();reply(id,new JSONObject().put("ok",true));return;}

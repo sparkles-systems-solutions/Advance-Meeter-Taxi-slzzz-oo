@@ -26,3 +26,8 @@ test('Android waits for precise permission before loading WebView GPS',()=>{
  assert.match(source,/trustedOrigin\(origin\)&&hasPreciseLocation\(\)/);
  assert.match(source,/pageLoaded&&precise&&!hadPreciseLocation.*web\.reload\(\)/s);
 });
+
+test('Finance uses a bar chart, reports are readable, and route changes persist',()=>{
+ const js=readFileSync(new URL('../assets/app.js',import.meta.url),'utf8'),css=readFileSync(new URL('../assets/app.css',import.meta.url),'utf8'),html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
+ assert.match(js,/type: 'bar'/);assert.match(css,/\.report-row[^\n]*font-size:12px/);assert.match(js,/routeStops/);assert.match(html,/Route \/ Stop/);
+});

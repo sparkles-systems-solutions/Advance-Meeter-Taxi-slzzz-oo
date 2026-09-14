@@ -44,6 +44,12 @@ test('Frontend, session adapter and database integration',async t=>{
   assert.equal((await ctx.cloudStore.request('/state')).version,s.version);els['set-app-name'].value='QA Taxi';
   els['set-rate'].value='1000001';await run('saveSettings()');assert.equal(ctx.cloudStore.dirty,false);els['set-rate'].value='80';
  });
+ await t.test('Delivery and Book Schedule use their own tariffs and close the booking panel',()=>{
+  run("SETTINGS.deliveryTariff={base:250,rate:100,waitRate:10,nightPercent:20};SETTINGS.scheduleTariff={base:300,rate:120,waitRate:12,nightPercent:25};totalMeters=2000");
+  run("setMode('delivery')");assert.equal(run('calcFare()'),350);
+  run("setMode('schedule')");assert.equal(run('calcFare()'),420);assert.equal(els['booking-accordion'].classList.contains('open'),true);
+  run("setMode('auto')");assert.equal(els['booking-accordion'].classList.contains('open'),false);run('totalMeters=0');
+ });
  await t.test('All five ride modes and Settings submenus remain callable',()=>{
   for(const mode of ['auto','gps','manual','delivery','schedule'])run(`setMode('${mode}')`);
   for(const action of ['openLogin','openAppSettings','openFuelLogModal','openRepairLogModal','openReportsMenu','openDriverApp','openDatabaseBackupModal','openSystemLogModal'])run(action+'()');

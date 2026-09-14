@@ -27,7 +27,7 @@
     <!-- Google Fonts for premium typography -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Share+Tech+Mono&display=swap" rel="stylesheet">
     
-    <link rel="stylesheet" href="assets/app.css?v=a5-short-links-20260914">
+    <link rel="stylesheet" href="assets/app.css?v=routing-tariffs-20260914">
 </head>
 <body class="min-h-screen text-slate-100 flex items-center justify-center p-2 sm:p-4">
 
@@ -105,7 +105,7 @@
     <!-- Live Ride Active Banner Indicator -->
     <div id="active-ride-banner" class="hidden bg-rose-500/20 border border-rose-500/30 text-rose-300 text-center text-[10px] sm:text-xs py-2.5 px-3 rounded-xl mb-3.5 font-bold flex items-center justify-between gap-2">
         <span><span class="inline-block w-2 h-2 rounded-full bg-rose-500 animate-ping"></span> <span data-en="LIVE RIDE IN PROGRESS" data-bi="සජීවී ධාවනය සක්‍රීයයි (LIVE RIDE IN PROGRESS)">සජීවී ධාවනය සක්‍රීයයි (LIVE RIDE IN PROGRESS)</span></span>
-        <button type="button" class="px-2 py-1 bg-blue-600 text-white rounded-lg" onclick="showTrackingPopup()" data-en="Passenger link" data-bi="මගී link">මගී link</button>
+        <div class="flex gap-1"><button type="button" class="px-2 py-1 bg-amber-600 text-white rounded-lg" onclick="manageRoute()">Route / Stop</button><button type="button" class="px-2 py-1 bg-blue-600 text-white rounded-lg" onclick="showTrackingPopup()" data-en="Passenger link" data-bi="මගී link">මගී link</button></div>
     </div>
 
     <!-- Auto Tracking Location Card -->
@@ -718,6 +718,26 @@
             </div>
         </div>
 
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-3.5 space-y-2.5">
+            <div class="text-[9px] text-amber-400 font-extrabold uppercase">Delivery Tariff Parameters</div>
+            <div class="grid grid-cols-2 gap-2">
+                <label>Base Fare<input id="set-delivery-base" type="number" min="0" inputmode="decimal" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white"></label>
+                <label>Rate / KM<input id="set-delivery-rate" type="number" min="0" inputmode="decimal" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white"></label>
+                <label>Wait / Min<input id="set-delivery-wait" type="number" min="0" inputmode="decimal" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white"></label>
+                <label>Night %<input id="set-delivery-night" type="number" min="0" inputmode="decimal" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white"></label>
+            </div>
+        </div>
+
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-3.5 space-y-2.5">
+            <div class="text-[9px] text-indigo-400 font-extrabold uppercase">Book / Schedule Tariff Parameters</div>
+            <div class="grid grid-cols-2 gap-2">
+                <label>Base Fare<input id="set-schedule-base" type="number" min="0" inputmode="decimal" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white"></label>
+                <label>Rate / KM<input id="set-schedule-rate" type="number" min="0" inputmode="decimal" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white"></label>
+                <label>Wait / Min<input id="set-schedule-wait" type="number" min="0" inputmode="decimal" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white"></label>
+                <label>Night %<input id="set-schedule-night" type="number" min="0" inputmode="decimal" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white"></label>
+            </div>
+        </div>
+
         <div class="bg-slate-950 border border-slate-800 rounded-xl p-3.5 space-y-2">
             <div class="text-[8px] sm:text-[9px] text-blue-500 font-extrabold uppercase tracking-widest">Security Settings</div>
             <p class="text-slate-400">Sign-in uses your account login key. The old local settings PIN is no longer used.</p>
@@ -1098,10 +1118,10 @@
     </div>
 </div>
 
-<script src="assets/config.js?v=a5-short-links-20260914"></script>
-<script src="assets/native-meter.js?v=a5-short-links-20260914"></script>
-<script src="assets/session.js?v=a5-short-links-20260914"></script>
-<script src="assets/reports.js?v=a5-short-links-20260914"></script>
-<script src="assets/app.js?v=a5-short-links-20260914"></script>
+<script src="assets/config.js?v=routing-tariffs-20260914"></script>
+<script src="assets/native-meter.js?v=routing-tariffs-20260914"></script>
+<script src="assets/session.js?v=routing-tariffs-20260914"></script>
+<script src="assets/reports.js?v=routing-tariffs-20260914"></script>
+<script src="assets/app.js?v=routing-tariffs-20260914"></script>
 </body>
 </html>

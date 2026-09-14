@@ -2,6 +2,8 @@ import UIKit
 import WebKit
 import CoreLocation
 import Security
+import Speech
+import AVFoundation
 
 @main class AppDelegate: UIResponder, UIApplicationDelegate {
  var window: UIWindow?
@@ -11,7 +13,7 @@ import Security
 }
 
 final class DriverController: UIViewController, WKScriptMessageHandler, WKNavigationDelegate {
- let meter=RideMeter();var web:WKWebView!
+ let meter=RideMeter();var web:WKWebView!;let audioEngine=AVAudioEngine();var speechTask:SFSpeechRecognitionTask?
  let host="sparkles-systems-solutions.github.io", path="/Advance-Meeter-Taxi-slzzz-oo/driver-test/"
  func trusted(_ url:URL?) -> Bool {url?.scheme == "https" && url?.host == host && (url?.path.hasPrefix(path) ?? false)}
  override func viewDidLoad(){
@@ -34,6 +36,7 @@ final class DriverController: UIViewController, WKScriptMessageHandler, WKNaviga
     case "stop":meter.stop();result=meter.state
     case "snapshot":result=meter.state
     case "sharePdf":try sharePdf(d);result=["ok":true]
+    case "voice":startVoice(id:id,language:(d["language"] as? String) ?? "en-US");return
     case "saveSession":try saveSession(d);result=["ok":true]
     case "loadSession":result=loadSession()
     case "clearSession":clearSession();result=["ok":true]
@@ -41,6 +44,24 @@ final class DriverController: UIViewController, WKScriptMessageHandler, WKNaviga
    }
   }catch{result=["error":error.localizedDescription]}
   if let bytes=try? JSONSerialization.data(withJSONObject:result),let json=String(data:bytes,encoding:.utf8){web.evaluateJavaScript("window.taxiNativeReply && window.taxiNativeReply(\(id),\(json))")}
+ }
+ func sendVoice(_ id:Int,_ result:[String:Any]){
+  if let bytes=try? JSONSerialization.data(withJSONObject:result),let json=String(data:bytes,encoding:.utf8){web.evaluateJavaScript("window.taxiNativeReply && window.taxiNativeReply(\(id),\(json))")}
+ }
+ func startVoice(id:Int,language:String){
+  SFSpeechRecognizer.requestAuthorization{status in DispatchQueue.main.async{
+   guard status == .authorized,let recognizer=SFSpeechRecognizer(locale:Locale(identifier:language)),recognizer.isAvailable else{self.sendVoice(id,["error":"Allow Speech Recognition and Microphone in Settings"]);return}
+   let request=SFSpeechAudioBufferRecognitionRequest();request.shouldReportPartialResults=true
+   let session=AVAudioSession.sharedInstance()
+   do{try session.setCategory(.record,mode:.measurement,options:.duckOthers);try session.setActive(true,options:.notifyOthersOnDeactivation)
+    let node=self.audioEngine.inputNode;node.removeTap(onBus:0);let format=node.outputFormat(forBus:0);node.installTap(onBus:0,bufferSize:1024,format:format){buffer,_ in request.append(buffer)}
+    self.audioEngine.prepare();try self.audioEngine.start()
+   }catch{self.sendVoice(id,["error":"Microphone could not start"]);return}
+   var last="";var replied=false
+   func finish(_ error:String?=nil){guard !replied else{return};replied=true;self.audioEngine.stop();self.audioEngine.inputNode.removeTap(onBus:0);request.endAudio();self.speechTask?.cancel();try? session.setActive(false,options:.notifyOthersOnDeactivation);self.sendVoice(id,error != nil ? ["error":error!] : ["transcript":last])}
+   self.speechTask=recognizer.recognitionTask(with:request){result,error in DispatchQueue.main.async{if let result=result{last=result.bestTranscription.formattedString;if result.isFinal{finish(last.isEmpty ? "No command heard" : nil)}}else if error != nil{finish("No command heard")}}}
+   DispatchQueue.main.asyncAfter(deadline:.now()+8){finish(last.isEmpty ? "No command heard" : nil)}
+  }}
  }
  func saveSession(_ d:[String:Any])throws{
   guard let token=d["token"] as? String,token.range(of:"^[a-f0-9]{64}$",options:.regularExpression) != nil,d["user"] is [String:Any] else{throw NSError(domain:"Invalid session",code:1)}

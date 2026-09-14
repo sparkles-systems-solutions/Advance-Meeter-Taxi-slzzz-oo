@@ -164,3 +164,6 @@
 @media (max-width:380px) { .account-settings .account-toolbar button { flex:1 1 110px; } .account-settings .share-controls button { width:100%; } }
 
 #account-reports section{margin:12px 0;padding:12px;border:1px solid #334155;border-radius:12px}#account-reports button{margin:4px;min-height:44px}#account-reports input{color:#fff;background:#0f172a;padding:12px;width:100%;font-size:16px}#account-reports pre,#account-reports p{white-space:pre-wrap;overflow-wrap:anywhere}#account-reports summary{padding:12px 0;cursor:pointer}
+
+/* Readable report data on phones. */
+.report-row,#account-reports p,#account-reports summary,.report-table{font-size:12px;line-height:1.55}.report-table th,.report-table td{font-size:12px;padding:10px}.report-summary{font-size:12px}.report-summary strong{font-size:18px}

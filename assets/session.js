@@ -17,9 +17,23 @@ window.cloudStore = (() => {
  async function flush() {
   if(!token||dirty===saved)return;
   if(flight){await flight;if(dirty!==saved)return flush();return;}
-  if(blocked)throw Error('Sync paused. Download unsaved data before signing in again.');
-  const revision=dirty,snapshot=JSON.stringify(values);
-  status('Saving…');flight=request('/state',{method:'PUT',headers:{'If-Match':String(version)},body:snapshot}).then(result=>{version=result.version;saved=revision;status('Saved to server');}).catch(e=>{if([401,409,422].includes(e.status))blocked=true;status('NOT SAVED: '+e.message);throw e;}).finally(()=>{flight=null;});
+  const revision=dirty;
+  flight=(async()=>{
+   let attempts=0;
+   while(attempts++<2){
+    const snapshot=JSON.stringify(values);status(attempts===1?'Saving…':'Resolving sync conflict…');
+    try{const result=await request('/state',{method:'PUT',headers:{'If-Match':String(version)},body:snapshot});version=result.version;saved=revision;blocked=false;status('Saved to server');return;}
+    catch(e){
+     if(e.status===409&&attempts<2){
+      const fresh=await request('/state'),local=JSON.parse(snapshot),server=fresh.data||{};
+      const mergedRides=new Map(JSON.parse(local.rides||'[]').map(r=>[r.id,r]));
+      for(const ride of JSON.parse(server.rides||'[]'))mergedRides.set(ride.id,ride);
+      values={...server,...local,rides:JSON.stringify([...mergedRides.values()])};version=fresh.version;continue;
+     }
+     if([401,422].includes(e.status))blocked=true;status((blocked?'Sync paused: ':'NOT SAVED: ')+e.message);throw e;
+    }
+   }
+  })().finally(()=>{flight=null;});
   await flight;if(dirty!==saved)return flush();
  }
  function schedule(){dirty++;status('Unsaved changes');clearTimeout(timer);timer=setTimeout(()=>flush().catch(()=>{}),700);}
