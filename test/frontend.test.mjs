@@ -109,6 +109,6 @@ test('Frontend, session adapter and database integration',async t=>{
   els['end-loc'].value='QA drop';run('openPhoneNavigation()');assert.equal(opened.pathname,'/maps/dir/');assert.equal(opened.searchParams.get('destination'),'QA drop');
   await ctx.cloudStore.flush();
  });
- await t.test('Concurrent modification pauses sync rather than overwriting',async()=>{const s=await ctx.cloudStore.request('/state');await ctx.cloudStore.request('/state',{method:'PUT',headers:{'If-Match':String(s.version)},body:JSON.stringify(s.data)});ctx.cloudStore.setItem('system_logs','[]');await assert.rejects(ctx.cloudStore.flush(),/Another session/);assert(ctx.cloudStore.dirty);});
+ await t.test('Concurrent modification rebases and retries without losing the active session',async()=>{const s=await ctx.cloudStore.request('/state');await ctx.cloudStore.request('/state',{method:'PUT',headers:{'If-Match':String(s.version)},body:JSON.stringify(s.data)});ctx.cloudStore.setItem('system_logs','[]');await ctx.cloudStore.flush();assert.equal(ctx.cloudStore.dirty,false);});
  }finally{await new Promise(resolve=>app.server.close(resolve));}
 });
