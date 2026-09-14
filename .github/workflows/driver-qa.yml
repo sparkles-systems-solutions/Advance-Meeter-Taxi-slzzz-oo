@@ -36,4 +36,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: brew install xcodegen
-      - run: cd native/ios && xcodegen generate && xcodebuild -project TaxiDriver.xcodeproj -scheme TaxiDriver -sdk iphoneos -configuration Debug CODE_SIGNING_ALLOWED=NO build
+      - run: cd native/ios && xcodegen generate && sed -i '' 's/objectVersion = 77;/objectVersion = 60;/' TaxiDriver.xcodeproj/project.pbxproj && xcodebuild -project TaxiDriver.xcodeproj -scheme TaxiDriver -sdk iphoneos -configuration Debug CODE_SIGNING_ALLOWED=NO build
