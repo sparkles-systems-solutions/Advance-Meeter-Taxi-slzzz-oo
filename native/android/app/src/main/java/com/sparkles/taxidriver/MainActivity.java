@@ -12,8 +12,6 @@ import android.util.Base64;
 import androidx.core.content.FileProvider;
 import org.json.JSONObject;
 import androidx.webkit.WebViewCompat;
-import androidx.core.view.ViewCompat;
-import androidx.core.view.WindowInsetsCompat;
 import java.util.Collections;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -30,7 +28,7 @@ public class MainActivity extends Activity {
  boolean hasPreciseLocation(){return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED;}
  @Override public void onCreate(Bundle state){
   super.onCreate(state);web=new WebView(this);setContentView(web);
-  ViewCompat.setOnApplyWindowInsetsListener(web,(view,insets)->{androidx.core.graphics.Insets bars=insets.getInsets(WindowInsetsCompat.Type.systemBars());view.setPadding(bars.left,bars.top,bars.right,bars.bottom);return insets;});
+  web.setOnApplyWindowInsetsListener((view,insets)->{view.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());return insets;});
   web.getSettings().setJavaScriptEnabled(true);web.getSettings().setDomStorageEnabled(true);web.getSettings().setGeolocationEnabled(true);
   web.getSettings().setAllowFileAccess(false);web.getSettings().setAllowContentAccess(false);
   web.getSettings().setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
