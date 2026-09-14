@@ -22,7 +22,13 @@ window.cloudStore = (() => {
    let attempts=0;
    while(attempts++<2){
     const snapshot=JSON.stringify(values);status(attempts===1?'Saving…':'Resolving sync conflict…');
-    try{const result=await request('/state',{method:'PUT',headers:{'If-Match':String(version)},body:snapshot});version=result.version;saved=revision;blocked=false;status('Saved to server');return;}
+    try{const result=await request('/state',{method:'PUT',headers:{'If-Match':String(version)},body:snapshot});version=result.version;
+     // The server signs new receipts with its canonical tariff snapshot. Pull those
+     // immutable rows back immediately so a later save never submits a stale copy.
+     const canonical=await request('/state'),currentRides=new Map(JSON.parse(values.rides||'[]').map(r=>[r.id,r]));
+     for(const ride of JSON.parse(canonical.data?.rides||'[]'))currentRides.set(ride.id,ride);
+     values={...values,rides:JSON.stringify([...currentRides.values()])};version=canonical.version;
+     saved=revision;blocked=false;status('Saved to server');return;}
     catch(e){
      if(e.status===409&&attempts<2){
       const fresh=await request('/state'),local=JSON.parse(snapshot),server=fresh.data||{};
