@@ -165,25 +165,19 @@ let paymentSaving=false, settingsSaving=false;
         return true;
     }
     
-    function toggleVoiceCommand() {
-        if (!voiceActive) {
-            if (!recognition && !initVoiceRecognition()) return;
-            try {
-                recognition.start();
-                voiceActive = true;
-                document.getElementById('voiceBtn').innerHTML = '🎤 LISTENING...';
-                document.getElementById('voiceStatus').innerHTML = '🔴 සක්‍රීය හඬ හඳුනාගැනීම...';
-                showToast('Voice Command Engine Activated', 'success');
-            } catch(e) {
-                showToast('Mic Access Authorization Failed', 'error');
-            }
-        } else {
-            if (recognition) recognition.stop();
-            voiceActive = false;
-            document.getElementById('voiceBtn').innerHTML = '🎤 VOICE CONTROL (OFF)';
-            document.getElementById('voiceStatus').innerHTML = '⚪ සක්‍රීය කිරීමට ක්ලික් කරන්න';
-            showToast('Voice Commands Deactivated', 'info');
+    async function toggleVoiceCommand() {
+        if(window.nativeMeter?.supported){
+            const btn=document.getElementById('voiceBtn'),status=document.getElementById('voiceStatus');
+            btn.disabled=true;btn.innerHTML='🎤 LISTENING...';status.textContent='Speak a command now';
+            try{const result=await window.nativeMeter.call('voice',{language:SETTINGS.language==='en'?'en-US':'en-US'});const text=String(result.transcript||'').toLowerCase().trim();status.textContent=text?'Recognized: '+text:'No command heard';if(text)processVoiceCommand(text);}
+            catch(e){status.textContent=e.message;showToast('Voice command failed: '+e.message,'error');}
+            finally{btn.disabled=false;btn.innerHTML='🎤 VOICE CONTROL';}return;
         }
+        if(!voiceActive){
+            if(!recognition&&!initVoiceRecognition())return;
+            try{recognition.start();voiceActive=true;document.getElementById('voiceBtn').innerHTML='🎤 LISTENING...';document.getElementById('voiceStatus').innerHTML='🔴 Listening for a command...';}
+            catch(e){showToast('Allow microphone permission and try again.','error');}
+        }else{if(recognition)recognition.stop();voiceActive=false;document.getElementById('voiceBtn').innerHTML='🎤 VOICE CONTROL (OFF)';document.getElementById('voiceStatus').innerHTML='Tap to enable';}
     }
     
     function processVoiceCommand(cmd) {
@@ -204,8 +198,8 @@ let paymentSaving=false, settingsSaving=false;
 
     // ========== STREAMING_CHUNK: Core State Initializations & Expanded Modals ==========
     let sTime = null, watchId = null, totalMeters = 0, lastLat = null, lastLon = null, currentLat = null, currentLng = null, currentRID = "", nightActive = false, gpsReady = false, currentMode = "auto", pendingRideData = null, selectedMethod = "cash", currentLocationAddress = "", currentLocationLat = null, currentLocationLon = null, startLocationAddress = "", currentDestinationAddress = "", mapObj = null, mapMarker = null, mapPickerField = null, currentTrackingId = null;
-    let deliveryPickupName="", deliveryPickupPhone="", deliveryDeliveryName="", deliveryDeliveryPhone="";
-    let SETTINGS = { base: 100, rate: 80, waitRate: 5, nightPercent: 10, appName: "ADVANCE MEETER TAXI", receiptName: "AMT OFFICIAL RECEIPT", logoData: "", address: "", businessMobile: "", email: "", website: "", receiptFooter: "Thank you for riding with us!", language: "bi", linkDays: 30 };
+    let deliveryPickupName="", deliveryPickupPhone="", deliveryDeliveryName="", deliveryDeliveryPhone="", routeStops=[];
+    let SETTINGS = { base: 100, rate: 80, waitRate: 5, nightPercent: 10, deliveryTariff:{base:100,rate:80,waitRate:5,nightPercent:10}, scheduleTariff:{base:100,rate:80,waitRate:5,nightPercent:10}, appName: "ADVANCE MEETER TAXI", receiptName: "AMT OFFICIAL RECEIPT", logoData: "", address: "", businessMobile: "", email: "", website: "", receiptFooter: "Thank you for riding with us!", language: "bi", linkDays: 30 };
     let currentReportType = "daily";
     let passengerMap = null, passengerMarker = null;
     let latestPassengerPayload = null;
@@ -336,7 +330,7 @@ let paymentSaving=false, settingsSaving=false;
             cloudStore.setItem('amt_ride_state', JSON.stringify({
                 isRideActive: true, startTime: sTime, totalMeters, lastLat, lastLon, currentMode, nightActive, startLocationAddress, currentLocationAddress, gpsReady: true, destinationAddress: currentDestinationAddress, trackingId: currentTrackingId,
                 deliveryPickupName, deliveryPickupPhone, deliveryDeliveryName, deliveryDeliveryPhone,
-                activeBookingId, activeBookingManualFare, sharingEnabled:document.getElementById('share-location').checked, trackingShareToken,
+                activeBookingId, activeBookingManualFare, routeStops, sharingEnabled:document.getElementById('share-location').checked, trackingShareToken,
                 form: Object.fromEntries(['customer-name','mobile','wait-select','discount-input','manual-fare','start-loc','end-loc','pickup-name','pickup-phone','delivery-name','delivery-phone'].map(id => [id, document.getElementById(id).value]))
             }));
             configureNativeMeter();
@@ -350,7 +344,8 @@ let paymentSaving=false, settingsSaving=false;
         try { await cloudStore.request('/track/'+trackingShareToken,{method:'PUT',body:JSON.stringify({lat:currentLat,lng:currentLng,currentFare:calcFare(),distanceTraveled:(totalMeters/1000).toFixed(2),status:forceStatus,mode:currentMode})}); }
         catch(e) { cloudStore.reportStatus('Tracking update failed: '+e.message); }
     }
-    function receiptSettingsSnapshot(){return Object.fromEntries(['base','rate','waitRate','nightPercent','appName','receiptName','address','businessMobile','email','website','receiptFooter','language'].map(k=>[k,SETTINGS[k]??'']));}
+    function activeTariff(mode=currentMode){const custom=mode==='delivery'?SETTINGS.deliveryTariff:mode==='schedule'?SETTINGS.scheduleTariff:null;return custom&&['base','rate','waitRate','nightPercent'].every(k=>Number.isFinite(Number(custom[k])))?custom:SETTINGS;}
+    function receiptSettingsSnapshot(){const rate=activeTariff();return {...Object.fromEntries(['appName','receiptName','address','businessMobile','email','website','receiptFooter','language'].map(k=>[k,SETTINGS[k]??''])),...Object.fromEntries(['base','rate','waitRate','nightPercent'].map(k=>[k,Number(rate[k])||0]))};}
 
     function loadRideState() {
         let saved = cloudStore.getItem('amt_ride_state');
@@ -394,6 +389,7 @@ let paymentSaving=false, settingsSaving=false;
             deliveryDeliveryPhone = state.deliveryDeliveryPhone || "";
             activeBookingId = state.activeBookingId || null;
             activeBookingManualFare = state.activeBookingManualFare || null;
+            routeStops = Array.isArray(state.routeStops) ? state.routeStops.slice(0,5) : [];
             gpsReady = usesManualDistance();
             lastLat = null; lastLon = null;
             
@@ -501,7 +497,7 @@ let paymentSaving=false, settingsSaving=false;
     }
     function configureNativeMeter() {
         if (!window.nativeMeter?.supported || !sTime) return;
-        cloudStore.configureNative({share:document.getElementById('share-location').checked?trackingShareToken:'',rates:SETTINGS,mode:currentMode,manualMeters:totalMeters,manualFare:Math.max(0,Number(document.getElementById('manual-fare').value)||0),wait:Number(document.getElementById('wait-select').value)||0,discount:Math.max(0,Number(document.getElementById('discount-input').value)||0),night:nightActive}).catch(e=>cloudStore.reportStatus(e.message));
+        cloudStore.configureNative({share:document.getElementById('share-location').checked?trackingShareToken:'',rates:activeTariff(),mode:currentMode,manualMeters:totalMeters,manualFare:Math.max(0,Number(document.getElementById('manual-fare').value)||0),wait:Number(document.getElementById('wait-select').value)||0,discount:Math.max(0,Number(document.getElementById('discount-input').value)||0),night:nightActive}).catch(e=>cloudStore.reportStatus(e.message));
     }
 
     function trackRide() {
@@ -610,6 +606,8 @@ let paymentSaving=false, settingsSaving=false;
         if (!['auto','gps','manual','delivery','schedule'].includes(mode)) return;
         gpsAttempt++;
         currentMode = mode;
+        const bookingAcc=document.getElementById('booking-accordion');
+        if(mode!=='schedule'&&bookingAcc)bookingAcc.classList.remove('open');
         if (!sTime && !usesManualDistance()) { gpsReady = false; document.getElementById('startBtn').disabled = true; }
         ['auto','gps','manual','delivery','schedule'].forEach(m => {
             const btn = document.getElementById(`mode-${m}`);
@@ -820,15 +818,12 @@ let paymentSaving=false, settingsSaving=false;
     }
 
     function calcFare() {
-        let manualFare = Math.max(0, parseFloat(document.getElementById('manual-fare').value) || 0),
-            disc = Math.max(0, parseFloat(document.getElementById('discount-input').value) || 0),
-            wait = (parseInt(document.getElementById('wait-select').value) || 0),
-            waitCharge = wait * SETTINGS.waitRate,
-            km = totalMeters / 1000,
-            total = manualFare > 0 ? manualFare + waitCharge - disc : SETTINGS.base + (Math.max(0, km - 1) * SETTINGS.rate) + waitCharge - disc;
-            
-        if (nightActive) total = total + (total * SETTINGS.nightPercent / 100);
-        return Math.max(0, Math.round(total));
+        const tariff=activeTariff(),manualFare=Math.max(0,parseFloat(document.getElementById('manual-fare').value)||0),
+            disc=Math.max(0,parseFloat(document.getElementById('discount-input').value)||0),wait=parseInt(document.getElementById('wait-select').value)||0,
+            waitCharge=wait*Number(tariff.waitRate),km=totalMeters/1000;
+        let total=manualFare>0?manualFare+waitCharge-disc:Number(tariff.base)+(Math.max(0,km-1)*Number(tariff.rate))+waitCharge-disc;
+        if(nightActive)total+=total*Number(tariff.nightPercent)/100;
+        return Math.max(0,Math.round(total));
     }
 
     // ========== STREAMING_CHUNK: Managing Active Ride Start & End Sequences ==========
@@ -1033,6 +1028,7 @@ let paymentSaving=false, settingsSaving=false;
             mode: activeBookingId ? "Booked Ride" : (currentMode === 'auto' ? "Auto" : (currentMode === 'gps' ? "GPS" : (currentMode === 'manual' ? "Manual" : "Delivery"))), 
             time: Date.now(),
             trackingId: currentTrackingId,
+            stops: routeStops.slice(),
             trackingToken: trackingShareToken,
             finalLat: Number.isFinite(finalLat) ? finalLat : null,
             finalLng: Number.isFinite(finalLon) ? finalLon : null,
@@ -1078,6 +1074,7 @@ let paymentSaving=false, settingsSaving=false;
         document.getElementById('share-location').checked=false;
         stopTrackingUpdates();
         currentTrackingId = null;
+        routeStops = [];
         document.getElementById('restore-banner').classList.add('hidden');
         if(watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
         releaseWakeLock();
@@ -1288,6 +1285,7 @@ let paymentSaving=false, settingsSaving=false;
                     <div style="color: #000; font-size: 10px; word-break: break-word; line-height: 1.3;">${ride.to || 'Colombo, Sri Lanka'}</div>
                 </div>
                 
+                ${Array.isArray(ride.stops)&&ride.stops.length?`<div style="margin-bottom:8px"><div style="font-weight:bold">ROUTE STOPS:</div><div style="font-size:10px">${ride.stops.map(escapeHTML).join(' → ')}</div></div>`:''}
                 ${ride.mode === 'Delivery' ? `
                 <div style="border: 1px solid #000; border-radius: 6px; padding: 6px; margin-bottom: 8px; background: #f9f9f9;">
                     <div style="font-weight: bold; text-transform: uppercase; font-size: 10px; margin-bottom: 4px;">📦 DELIVERY & PICKUP DETAILS:</div>
@@ -2229,18 +2227,18 @@ let paymentSaving=false, settingsSaving=false;
         if (ctx && typeof Chart !== 'undefined') {
             if (window.profitChartObj) window.profitChartObj.destroy();
             window.profitChartObj = new Chart(ctx, {
-                type: 'doughnut',
+                type: 'bar',
                 data: {
-                    labels: ['Revenue', 'Fuel', 'Repairs'],
+                    labels: ['Revenue', 'Fuel', 'Repairs', 'Net Profit'],
                     datasets: [{
-                        data: [totalRevenue, totalFuel, totalRepairs],
-                        backgroundColor: ['#10b981', '#ef4444', '#f59e0b'],
+                        data: [totalRevenue, totalFuel, totalRepairs, netProfit],
+                        backgroundColor: ['#10b981', '#ef4444', '#f59e0b', netProfit>=0?'#3b82f6':'#dc2626'],
                         borderWidth: 0
                     }]
                 },
                 options: {
                     responsive: true,
-                    plugins: { legend: { labels: { color: '#fff', font: { size: 8 } } } }
+                    plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{color:'#cbd5e1',font:{size:11}}},x:{ticks:{color:'#cbd5e1',font:{size:11}}}}
                 }
             });
         }
@@ -2326,6 +2324,9 @@ let paymentSaving=false, settingsSaving=false;
         document.getElementById('set-rate').value = SETTINGS.rate;
         document.getElementById('set-wait').value = SETTINGS.waitRate;
         document.getElementById('set-night').value = SETTINGS.nightPercent;
+        SETTINGS.deliveryTariff={base:SETTINGS.base,rate:SETTINGS.rate,waitRate:SETTINGS.waitRate,nightPercent:SETTINGS.nightPercent,...SETTINGS.deliveryTariff};
+        SETTINGS.scheduleTariff={base:SETTINGS.base,rate:SETTINGS.rate,waitRate:SETTINGS.waitRate,nightPercent:SETTINGS.nightPercent,...SETTINGS.scheduleTariff};
+        [['delivery',SETTINGS.deliveryTariff],['schedule',SETTINGS.scheduleTariff]].forEach(([p,t])=>{document.getElementById(`set-${p}-base`).value=t.base;document.getElementById(`set-${p}-rate`).value=t.rate;document.getElementById(`set-${p}-wait`).value=t.waitRate;document.getElementById(`set-${p}-night`).value=t.nightPercent;});
         document.getElementById('set-address').value = SETTINGS.address || '';
         document.getElementById('set-mobile').value = SETTINGS.businessMobile || '';
         document.getElementById('set-email').value = SETTINGS.email || '';
@@ -2383,7 +2384,7 @@ let paymentSaving=false, settingsSaving=false;
     async function saveSettings() {
         if(settingsSaving)return;
         if (sTime || pendingRideData) { showToast("Finish the ride and payment before changing tariffs.", "warning"); return; }
-        if (['set-base','set-rate','set-wait','set-night'].some(id => {
+        if (['set-base','set-rate','set-wait','set-night','set-delivery-base','set-delivery-rate','set-delivery-wait','set-delivery-night','set-schedule-base','set-schedule-rate','set-schedule-wait','set-schedule-night'].some(id => {
             const val = document.getElementById(id).value;
             return val.trim() === '' || !Number.isFinite(Number(val)) || Number(val) < 0 || Number(val)>1000000;
         })) { showToast('Enter valid non-negative rates.', 'error'); return; }
@@ -2402,6 +2403,8 @@ let paymentSaving=false, settingsSaving=false;
         SETTINGS.rate = Number(document.getElementById('set-rate').value);
         SETTINGS.waitRate = Number(document.getElementById('set-wait').value);
         SETTINGS.nightPercent = Number(document.getElementById('set-night').value);
+        SETTINGS.deliveryTariff={base:Number(document.getElementById('set-delivery-base').value),rate:Number(document.getElementById('set-delivery-rate').value),waitRate:Number(document.getElementById('set-delivery-wait').value),nightPercent:Number(document.getElementById('set-delivery-night').value)};
+        SETTINGS.scheduleTariff={base:Number(document.getElementById('set-schedule-base').value),rate:Number(document.getElementById('set-schedule-rate').value),waitRate:Number(document.getElementById('set-schedule-wait').value),nightPercent:Number(document.getElementById('set-schedule-night').value)};
         SETTINGS.address = document.getElementById('set-address').value.trim();
         SETTINGS.businessMobile = document.getElementById('set-mobile').value.trim();
         SETTINGS.email = document.getElementById('set-email').value.trim();
@@ -2485,6 +2488,19 @@ let paymentSaving=false, settingsSaving=false;
     }
 
     // Open Phone Navigation links
+    function manageRoute() {
+        if(!sTime){showToast('Start the ride before changing its route.','info');return;}
+        const next=prompt('Enter the next stop or new final destination:',currentDestinationAddress||document.getElementById('end-loc').value||'');
+        if(!next||!next.trim())return;const clean=next.trim();
+        if(currentDestinationAddress&&currentDestinationAddress!==clean)routeStops.push(currentDestinationAddress);
+        routeStops=routeStops.filter(Boolean).slice(-5);currentDestinationAddress=clean;document.getElementById('end-loc').value=clean;
+        if(usesManualDistance()&&Number(document.getElementById('manual-fare').value)>0&&confirm('Change the agreed fare for this new destination? Press Cancel to keep the current fare.')){
+            const fare=prompt('Enter the new agreed fare (LKR):',document.getElementById('manual-fare').value);
+            if(fare!==null&&Number.isFinite(Number(fare))&&Number(fare)>=0)document.getElementById('manual-fare').value=Number(fare);
+        }
+        saveRideState();updateDisplay();showToast('Route updated. Distance already travelled was kept.','success');
+    }
+
     function openPhoneNavigation() {
         const destination=currentDestinationAddress || document.getElementById('end-loc').value.trim();
         const hasGPS=Number.isFinite(currentLat)&&Number.isFinite(currentLng);
