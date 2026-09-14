@@ -3,6 +3,7 @@
 import { randomBytes, timingSafeEqual, createHash } from 'node:crypto';
 const digest = value => createHash('sha256').update(value).digest('hex');
 const random = () => randomBytes(32).toString('hex');
+const randomLink = () => randomBytes(18).toString('base64url'); // 144-bit compact passenger capability
 // Login keys are 256-bit random secrets, never human-chosen passwords.
 // SHA-256 is appropriate here because offline guessing a random 256-bit key is infeasible.
 function keyMatches(key, stored) {
@@ -152,7 +153,7 @@ export default {
     if(!sessionWrite[3].meta.changes)fail(401,'Login key changed. Sign in with your newest key.');
     return send(200,{token,user:{username:user.username,role:user.role}});
    }
-   const shareMatch=path.match(/^\/api\/track\/([a-f0-9]{64})$/);
+   const shareMatch=path.match(/^\/api\/track\/((?:[A-Za-z0-9_-]{24}|[a-f0-9]{64}))$/);
    if(shareMatch&&method==='GET'){
     await ensureRideLinks();
     const row=await q('SELECT payload FROM ride_links WHERE token_hash=? AND expires>?',digest(shareMatch[1]),now).first()||await q('SELECT payload FROM shares WHERE token_hash=? AND expires>?',digest(shareMatch[1]),now).first();
@@ -181,10 +182,10 @@ export default {
    if(path==='/api/track'&&method==='POST'){
     await ensureRideLinks();
     const data=(request.headers.get('Content-Type')||'').startsWith('application/json')?await jsonBody(request,4096):{},rideId=String(data?.rideId||'');
-    if(!rideId){const token=random();await q(`INSERT INTO shares(token_hash,user_id,expires,payload) VALUES(?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET token_hash=excluded.token_hash,expires=excluded.expires,payload=excluded.payload`,digest(token),user.id,now+6*3600000,'{"status":"waiting"}').run();return send(201,{token});}
+    if(!rideId){const token=randomLink();await q(`INSERT INTO shares(token_hash,user_id,expires,payload) VALUES(?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET token_hash=excluded.token_hash,expires=excluded.expires,payload=excluded.payload`,digest(token),user.id,now+6*3600000,'{"status":"waiting"}').run();return send(201,{token});}
     if(!/^[A-Za-z0-9_.:-]{1,100}$/.test(rideId))fail(400,'Invalid ride ID');
     await q('DELETE FROM ride_links WHERE expires<=?',now).run();
-    const token=random();
+    const token=randomLink();
     try{await q('INSERT INTO ride_links(token_hash,user_id,ride_id,expires,payload) VALUES(?,?,?,?,?)',digest(token),user.id,rideId,now+24*3600000,JSON.stringify({status:'waiting',rideId,timestamp:now})).run();}
     catch(e){fail(409,'This ride already has a passenger link. Reopen it from the active ride button.');}
     return send(201,{token});

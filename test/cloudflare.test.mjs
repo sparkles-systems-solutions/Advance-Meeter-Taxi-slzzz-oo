@@ -100,7 +100,7 @@ test('Worker with real SQLite: authorization, transactions and data validation',
   assert.equal((await call('/api/state',{method:'PUT',token:admin,headers:{'If-Match':String(state.version)},data:{...state.data,local_backups:'x'.repeat(750001)}})).status,413);
  });
  await t.test('tracking ownership and privacy; replacement revokes old capability',async()=>{
-  share=(await call('/api/track',{method:'POST',token:admin})).body.token;
+  share=(await call('/api/track',{method:'POST',token:admin})).body.token;assert.match(share,/^[A-Za-z0-9_-]{24}$/);
   const data={lat:6.9,lng:79.8,currentFare:200,status:'active',customerPhone:'private',customerName:'private'};
   assert.equal((await call('/api/track/'+share,{method:'PUT',token:driver,data})).status,404);
   assert.equal((await call('/api/track/'+share,{method:'PUT',token:admin,data})).status,200);

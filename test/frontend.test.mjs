@@ -70,8 +70,8 @@ test('Frontend, session adapter and database integration',async t=>{
  await t.test('Manual trip is durably saved',async()=>{run("setMode('manual')");els['start-loc'].value='Test pickup';els['end-loc'].value='Test drop';els['manual-km-input'].value='2';await run('startRide()');await ctx.cloudStore.flush();const s=await ctx.cloudStore.request('/state');assert.equal(JSON.parse(s.data.amt_ride_state).totalMeters,2000);});
  await t.test('Ride Start automatically opens a usable passenger link without visiting Settings',async()=>{
   assert.equal(els['share-location'].checked,true);assert.equal(els['trackingPopupModal'].style.display,'flex');
-  const link=new URL(els['trackingLinkDisplay'].textContent);assert.match(link.searchParams.get('track'),/^[a-f0-9]{64}$/);
-  const response=await fetch(ctx.window.AMT_CONFIG.apiBase+'/api/track/'+link.searchParams.get('track'));
+  const link=new URL(els['trackingLinkDisplay'].textContent);assert.match(link.searchParams.get('t'),/^[a-f0-9]{64}$/);
+  const response=await fetch(ctx.window.AMT_CONFIG.apiBase+'/api/track/'+link.searchParams.get('t'));
   assert.equal(response.status,200);assert.equal((await response.json()).status,'waiting');
   let qr;ctx.QRCode=function(container,options){qr=options;};await run('showTrackingPopup()');assert.equal(qr.text,els['trackingLinkDisplay'].textContent);
   assert.equal(els['nav-container'].classList.contains('hidden'),false);
@@ -95,7 +95,7 @@ test('Frontend, session adapter and database integration',async t=>{
  await t.test('Auto ride shows Navigate and passenger receives coordinates without signing in',async()=>{
   els['end-loc'].value='';run("setMode('auto');gpsReady=true;currentLocationAddress='QA pickup';currentDestinationAddress='';currentLat=6.9;currentLng=79.8");
   await run('startRide()');assert.equal(els['nav-container'].classList.contains('hidden'),false);
-  const share=new URL(els['trackingLinkDisplay'].textContent).searchParams.get('track');
+  const share=new URL(els['trackingLinkDisplay'].textContent).searchParams.get('t');
   const response=await fetch(ctx.window.AMT_CONFIG.apiBase+'/api/track/'+share);const payload=await response.json();
   assert.equal(response.status,200);assert.equal(payload.lat,6.9);assert.equal(payload.mode,'auto');
   let opened;ctx.window.open=url=>{opened=new URL(url);};run('openPhoneNavigation()');
