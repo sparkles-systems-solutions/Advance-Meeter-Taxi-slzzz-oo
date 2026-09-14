@@ -160,3 +160,5 @@
 .account-gate { overflow-y:auto; }
 .account-gate input { font-size:16px; min-height:44px; }
 @media (max-width:380px) { .account-settings .account-toolbar button { flex:1 1 110px; } .account-settings .share-controls button { width:100%; } }
+
+#account-reports section{margin:12px 0;padding:12px;border:1px solid #334155;border-radius:12px}#account-reports button{margin:4px;min-height:44px}#account-reports input{color:#fff;background:#0f172a;padding:12px;width:100%;font-size:16px}#account-reports pre,#account-reports p{white-space:pre-wrap;overflow-wrap:anywhere}#account-reports summary{padding:12px 0;cursor:pointer}

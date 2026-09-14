@@ -247,6 +247,9 @@
             <span class="w-1.5 h-1.5 rounded-full bg-slate-700 animate-pulse"></span> 📍 GPS සම්බන්ධතාවය පරීක්ෂා කරමින්...
         </div>
 
+        <label class="block mt-3 text-xs">Customer name (optional)
+            <input id="customer-name" maxlength="120" autocomplete="name" class="w-full p-3 bg-slate-950 rounded-lg text-base" placeholder="Name for CRM">
+        </label>
         <!-- Manual Distance Adjustments -->
         <div id="manual-controls" class="hidden mt-3.5 pt-3.5 border-t border-slate-800/60 space-y-2.5">
             <div class="flex items-center justify-between gap-1">
@@ -597,6 +600,10 @@
                 <div class="account-toolbar"><button type="button" onclick="cloudStore.flush().catch(e=>showToast(e.message,'error'))">Retry save</button><button type="button" onclick="cloudStore.exportUnsaved()">Export unsaved data</button></div>
                 <div class="share-controls"><label><input id="share-location" type="checkbox" onchange="changeLocationSharing()"> Share live location by link</label><button type="button" onclick="showTrackingPopup()">View / share link</button></div>
                 <p class="account-settings-help">Starting a ride creates its passenger link and QR code. Uncheck sharing to revoke that ride's link.</p>
+            </section>
+            <section class="account-settings">
+                <button type="button" onclick="openAccountReports().catch(e=>showToast(e.message,'error'))">Reports, CRM &amp; driver accounts</button>
+                <div id="account-reports" hidden><div id="admin-accounts"></div><div id="report-output"></div></div>
             </section>
             <!-- Core Operations Section -->
             <div class="bg-slate-950/60 border border-slate-850/80 rounded-2xl p-4 space-y-3 shadow-inner">
@@ -1077,7 +1084,9 @@
 </div>
 
 <script src="assets/config.js?v=mobile-qa-20260911"></script>
+<script src="assets/native-meter.js?v=driver-qa-1"></script>
 <script src="assets/session.js?v=mobile-qa-20260911"></script>
-<script src="assets/app.js?v=ride-sharing-2"></script>
+<script src="assets/reports.js?v=driver-qa-1"></script>
+<script src="assets/app.js?v=driver-qa-1"></script>
 </body>
 </html>

@@ -43,5 +43,6 @@ window.cloudStore = (() => {
  async function logout(){try{await flush();await request('/logout',{method:'POST',body:'{}'});token='';values={};location.reload();}catch(e){status(e.message);}}
  window.addEventListener('beforeunload',e=>{if(dirty!==saved){e.preventDefault();e.returnValue='';}});
  window.addEventListener('online',()=>flush().catch(()=>{}));
- return {connect,request,flush,logout,exportUnsaved,reportStatus:status,get user(){return user;},getItem:key=>values[key]??null,setItem(key,value){values[key]=String(value);schedule();},removeItem(key){if(key in values){delete values[key];schedule();}},get dirty(){return dirty!==saved;}};
+ function configureNative(data){if(window.nativeMeter?.supported)return window.nativeMeter.call('configure',{...data,token});return Promise.resolve();}
+ return {connect,request,flush,logout,exportUnsaved,configureNative,reportStatus:status,get user(){return user;},getItem:key=>values[key]??null,setItem(key,value){values[key]=String(value);schedule();},removeItem(key){if(key in values){delete values[key];schedule();}},get dirty(){return dirty!==saved;}};
 })();

@@ -309,8 +309,9 @@ let paymentSaving=false, settingsSaving=false;
                 isRideActive: true, startTime: sTime, totalMeters, lastLat, lastLon, currentMode, nightActive, startLocationAddress, currentLocationAddress, gpsReady: true, destinationAddress: currentDestinationAddress, trackingId: currentTrackingId,
                 deliveryPickupName, deliveryPickupPhone, deliveryDeliveryName, deliveryDeliveryPhone,
                 activeBookingId, activeBookingManualFare, sharingEnabled:document.getElementById('share-location').checked, trackingShareToken,
-                form: Object.fromEntries(['mobile','wait-select','discount-input','manual-fare','start-loc','end-loc','pickup-name','pickup-phone','delivery-name','delivery-phone'].map(id => [id, document.getElementById(id).value]))
+                form: Object.fromEntries(['customer-name','mobile','wait-select','discount-input','manual-fare','start-loc','end-loc','pickup-name','pickup-phone','delivery-name','delivery-phone'].map(id => [id, document.getElementById(id).value]))
             }));
+            configureNativeMeter();
             broadcastOdometerTelemetry();
         }
     }
@@ -364,7 +365,7 @@ let paymentSaving=false, settingsSaving=false;
             deliveryDeliveryPhone = state.deliveryDeliveryPhone || "";
             activeBookingId = state.activeBookingId || null;
             activeBookingManualFare = state.activeBookingManualFare || null;
-            gpsReady = currentMode === 'manual';
+            gpsReady = usesManualDistance();
             lastLat = null; lastLon = null;
             
             setMode(currentMode);
@@ -379,7 +380,7 @@ let paymentSaving=false, settingsSaving=false;
             
             updateDisplay();
             if (currentMode === 'auto' && currentLocationAddress) document.getElementById('current-location-address').textContent = currentLocationAddress;
-            if (currentMode === 'manual') document.getElementById('manual-km-input').value = (totalMeters/1000).toFixed(2);
+            if (usesManualDistance()) document.getElementById('manual-km-input').value = (totalMeters/1000).toFixed(2);
             if (currentMode === 'delivery') {
                 document.getElementById('pickup-name').value = deliveryPickupName;
                 document.getElementById('pickup-phone').value = deliveryPickupPhone;
@@ -413,15 +414,19 @@ let paymentSaving=false, settingsSaving=false;
     }
 
     // ========== GEOLOCATION LOGIC (GPS LOGIC) ==========
+    function usesManualDistance() { return ['manual','delivery','schedule'].includes(currentMode); }
+
+    let gpsAttempt = 0;
     function startGPS() {
-        if (currentMode === 'manual' || sTime) return;
+        if (usesManualDistance() || sTime) return;
         if (!navigator.geolocation) {
             document.getElementById('gps-status').textContent = 'GPS unavailable — use Manual mode';
             return;
         }
-        showLoading(true);
+        const attempt = ++gpsAttempt;
+        document.getElementById('gps-status').textContent = 'Finding GPS…';
         navigator.geolocation.getCurrentPosition(pos => {
-            if (currentMode === 'manual' || sTime) { showLoading(false); return; }
+            if (attempt !== gpsAttempt || usesManualDistance() || sTime) return;
             let acc = pos.coords.accuracy;
             lastLat = pos.coords.latitude;
             lastLon = pos.coords.longitude;
@@ -431,6 +436,10 @@ let paymentSaving=false, settingsSaving=false;
                 gpsReady = true;
                 document.getElementById('gps-status').innerHTML = `✅ GPS Ready (${acc.toFixed(0)}m)`;
                 document.getElementById('startBtn').disabled = false;
+                if (currentMode === 'gps') {
+                    const field = document.getElementById('start-loc');
+                    if (!field.value.trim()) { field.value = getSriLankaFallbackAddress(lastLat,lastLon); startLocationAddress = field.value; }
+                }
                 if (currentMode === 'auto') {
                     currentLocationLat = lastLat;
                     currentLocationLon = lastLon;
@@ -440,20 +449,39 @@ let paymentSaving=false, settingsSaving=false;
                 showToast('GPS Connectivity Stabilized', 'success');
             } else {
                 showLoading(false);
-                setTimeout(startGPS, 3000);
+                document.getElementById('gps-status').textContent = 'GPS accuracy low — tap location refresh outside';
             }
         }, err => {
             showLoading(false);
-            if (currentMode === 'manual' || sTime) return;
+            if (usesManualDistance() || sTime) return;
             document.getElementById('gps-status').innerHTML = '❌ GPS Permissions Required';
             document.getElementById('startBtn').disabled = true;
             showToast('GPS Location Permissions Blocked', 'error');
-            if (err.code !== 1) setTimeout(startGPS, 5000);
+            document.getElementById('gps-status').textContent = err.code === 1 ? 'Allow location permission, then tap refresh' : 'GPS unavailable — tap refresh to retry';
         }, { enableHighAccuracy: true, timeout: 15000 });
     }
 
+    async function syncNativeMeter() {
+        if (!window.nativeMeter?.supported || !sTime) return;
+        const state = await window.nativeMeter.call('snapshot');
+        if (state.rideId !== sTime.toISOString()) return;
+        if (!usesManualDistance() && Number.isFinite(state.meters)) totalMeters = state.meters;
+        if (Number.isFinite(state.lat) && Number.isFinite(state.lng)) { currentLat=state.lat; currentLng=state.lng; }
+        const status=document.getElementById('gps-status');
+        status.textContent=state.gap?'GPS gap detected — review unmeasured distance':`Native GPS · ${Math.round(state.accuracy || 0)}m accuracy`;
+        updateDisplay();saveRideState();
+    }
+    function configureNativeMeter() {
+        if (!window.nativeMeter?.supported || !sTime) return;
+        cloudStore.configureNative({share:document.getElementById('share-location').checked?trackingShareToken:'',rates:SETTINGS,mode:currentMode,manualMeters:totalMeters,manualFare:Math.max(0,Number(document.getElementById('manual-fare').value)||0),wait:Number(document.getElementById('wait-select').value)||0,discount:Math.max(0,Number(document.getElementById('discount-input').value)||0),night:nightActive}).catch(e=>cloudStore.reportStatus(e.message));
+    }
+
     function trackRide() {
-        if (currentMode === "manual" || !navigator.geolocation) return;
+        if (window.nativeMeter?.supported) {
+            window.nativeMeter.call('start',{rideId:sTime.toISOString(),meters:totalMeters,metered:!usesManualDistance()}).then(syncNativeMeter).catch(e=>showToast(e.message,'error'));
+            return;
+        }
+        if (!navigator.geolocation) return;
         if (watchId !== null) navigator.geolocation.clearWatch(watchId);
         watchId = navigator.geolocation.watchPosition(pos => {
             if (!sTime || rideEnding) return;
@@ -476,6 +504,7 @@ let paymentSaving=false, settingsSaving=false;
                 reverseGeocode(lat, lon);
             }
             
+            if (usesManualDistance()) { broadcastOdometerTelemetry(); updateDriverPopupMarker(lat,lon); return; }
             if (lastLat !== null && lastLon !== null) {
                 const validation = isValidGPSUpdate(lat, lon, acc, lastLat, lastLon);
                 
@@ -520,7 +549,7 @@ let paymentSaving=false, settingsSaving=false;
     async function reverseGeocode(lat, lon) {
         if (Date.now() - lastGeocodeTime < 10000) return currentLocationAddress;
         lastGeocodeTime = Date.now();
-        if (!lat || !lon) return "Colombo, Sri Lanka";
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return "Location unavailable";
         try {
             let res = await fetchWithTimeout(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&accept-language=en&countrycodes=lk`, {
                 headers: { "Accept-Language": "en" }
@@ -537,6 +566,7 @@ let paymentSaving=false, settingsSaving=false;
     }
 
     function refreshCurrentLocation() {
+        if (!sTime && !usesManualDistance()) { startGPS(); return; }
         if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(pos => {
                 currentLat = pos.coords.latitude;
@@ -550,8 +580,9 @@ let paymentSaving=false, settingsSaving=false;
     function setMode(mode) {
         if (rideEnding || (sTime && mode !== currentMode)) { showToast('Finish the active ride before changing mode.', 'warning'); return; }
         if (!['auto','gps','manual','delivery','schedule'].includes(mode)) return;
+        gpsAttempt++;
         currentMode = mode;
-        if (!sTime && mode !== 'manual') { gpsReady = false; document.getElementById('startBtn').disabled = true; }
+        if (!sTime && !usesManualDistance()) { gpsReady = false; document.getElementById('startBtn').disabled = true; }
         ['auto','gps','manual','delivery','schedule'].forEach(m => {
             const btn = document.getElementById(`mode-${m}`);
             if (btn) {
@@ -594,8 +625,8 @@ let paymentSaving=false, settingsSaving=false;
             document.getElementById('auto-location-card').style.display = 'none';
             document.getElementById('location-fields').style.display = 'block';
             document.getElementById('delivery-accordion').style.display = 'block';
-            document.getElementById('manual-controls').style.display = 'none';
-            if (!sTime) startGPS();
+            document.getElementById('manual-controls').style.display = 'block';
+            gpsReady = true; document.getElementById('startBtn').disabled = false;
             setupAutocomplete('start-loc', 'start-loc-suggestions');
             setupAutocomplete('end-loc', 'end-loc-suggestions');
         } else if (mode === 'schedule') {
@@ -603,14 +634,14 @@ let paymentSaving=false, settingsSaving=false;
             document.getElementById('auto-location-card').style.display = 'none';
             document.getElementById('location-fields').style.display = 'block';
             document.getElementById('delivery-accordion').style.display = 'none';
-            document.getElementById('manual-controls').style.display = 'none';
+            document.getElementById('manual-controls').style.display = 'block';
             
             // Expand Schedule accordion directly
             const bookingAcc = document.getElementById('booking-accordion');
             if (bookingAcc && !bookingAcc.classList.contains('open')) {
                 toggleAccordion('booking-accordion');
             }
-            if (!sTime) startGPS();
+            gpsReady = true; document.getElementById('startBtn').disabled = false;
             setupAutocomplete('sch-start', 'sch-start-suggestions');
             setupAutocomplete('sch-end', 'sch-end-suggestions');
         }
@@ -650,6 +681,8 @@ let paymentSaving=false, settingsSaving=false;
                                 startLocationAddress = p.display_name;
                             }
                             div.style.display = 'none';
+                            pickerSearchLocation={lat:Number(p.lat),lng:Number(p.lon)};
+                            openMapPicker(inputId==='start-loc'?'start':inputId==='end-loc'?'end':inputId);
                         };
                         div.appendChild(item);
                     });
@@ -754,7 +787,7 @@ let paymentSaving=false, settingsSaving=false;
         }
         
         let ni = document.getElementById('night-indicator');
-        if (ni) ni.style.display = (nightActive && !document.getElementById('manual-fare').value) ? 'inline-block' : 'none';
+        if (ni) ni.style.display = nightActive ? 'inline-block' : 'none';
     }
 
     function calcFare() {
@@ -765,7 +798,7 @@ let paymentSaving=false, settingsSaving=false;
             km = totalMeters / 1000,
             total = manualFare > 0 ? manualFare + waitCharge - disc : SETTINGS.base + (Math.max(0, km - 1) * SETTINGS.rate) + waitCharge - disc;
             
-        if (nightActive && manualFare === 0) total = total + (total * SETTINGS.nightPercent / 100);
+        if (nightActive) total = total + (total * SETTINGS.nightPercent / 100);
         return Math.max(0, Math.round(total));
     }
 
@@ -775,7 +808,7 @@ let paymentSaving=false, settingsSaving=false;
         if (!sTime && loadRideState()) { showToast('Restore the previous ride or use RESET before starting a new one.', 'warning'); return; }
         if(sTime) { showToast("Ride already active!", 'warning'); return; }
         
-        if (currentMode !== 'manual' && !gpsReady) { showToast('Wait for an accurate GPS fix or use Manual mode.', 'warning'); return; }
+        if (!usesManualDistance() && !gpsReady) { showToast('Wait for an accurate GPS fix or use Manual mode.', 'warning'); return; }
         if(currentMode === 'auto') { 
             if(!currentLocationAddress || currentLocationAddress === "GPS සංඥා ලැබෙන තෙක් රැඳී සිටින්න...") { 
                 showToast("GPS සක්‍රීය වන තෙක් රැඳී සිටින්න!", 'warning'); 
@@ -805,20 +838,26 @@ let paymentSaving=false, settingsSaving=false;
             currentDestinationAddress = endLocVal;
         }
         
-        sTime = new Date();
+        const startedAt = new Date();
+        if (window.nativeMeter?.supported) {
+            try { await window.nativeMeter.call('start',{rideId:startedAt.toISOString(),meters:usesManualDistance()?totalMeters:0,metered:!usesManualDistance()}); }
+            catch(e) { showToast(e.message,'error'); return; }
+        }
+        sTime = startedAt;
         await requestWakeLock();
         document.body.classList.add('ride-active');
         document.getElementById('showMapPopupBtn').classList.remove('hidden');
         document.getElementById('active-ride-banner').classList.remove('hidden');
         
-        if(currentMode === 'auto' || currentMode === 'gps' || currentMode === 'delivery' || currentMode === 'schedule') {
+        if(!usesManualDistance()) {
             totalMeters = 0;
             lastLat = null; 
             lastLon = null;
             trackRide();
             if (currentMode !== 'auto') document.getElementById('nav-container').classList.remove('hidden');
         } 
-        else if(currentMode === 'manual') {
+        else if(usesManualDistance()) {
+            trackRide();
             totalMeters = (parseFloat(document.getElementById('manual-km-input').value) || 0) * 1000;
             document.getElementById('nav-container').classList.remove('hidden');
         } 
@@ -840,6 +879,7 @@ let paymentSaving=false, settingsSaving=false;
         document.getElementById('share-location').checked=true;
         saveRideState();
         await showTrackingPopup();
+        configureNativeMeter();
         startTrackingUpdates();
         startRideStatusMonitoring();
         showToast("ගමන සාර්ථකව ආරම්භ විය! 🚕", 'success');
@@ -897,13 +937,15 @@ let paymentSaving=false, settingsSaving=false;
         if (rideEnding) return;
         rideEnding = true;
         try {
+        await syncNativeMeter();
+        if (window.nativeMeter?.supported) await window.nativeMeter.call('stop');
         showLoading(true);
         closeDriverMapPopup();
         
         let finalLat = currentLat || lastLat;
         let finalLon = currentLng || lastLon;
         
-        if (currentMode !== 'manual' && navigator.geolocation) {
+        if (!window.nativeMeter?.supported && !usesManualDistance() && navigator.geolocation) {
             try {
                 const finalPos = await new Promise((resolve, reject) => {
                     navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 3000 });
@@ -932,7 +974,7 @@ let paymentSaving=false, settingsSaving=false;
             }
         }
         
-        if (currentMode === 'manual') finalAddress = currentDestinationAddress || document.getElementById('end-loc').value;
+        if (usesManualDistance()) finalAddress = currentDestinationAddress || document.getElementById('end-loc').value;
         let fare = calcFare(); 
         currentRID = generateReceiptID(); 
         let km = totalMeters / 1000; 
@@ -953,6 +995,7 @@ let paymentSaving=false, settingsSaving=false;
             km: km, 
             from: fromAddress, 
             to: finalAddress, 
+            customerName: document.getElementById('customer-name')?.value.trim() || '',
             mobile: document.getElementById('mobile').value || "N/A", 
             wait: parseInt(document.getElementById('wait-select').value) || 0, 
             disc: Math.max(0, parseFloat(document.getElementById('discount-input').value) || 0), 
@@ -992,11 +1035,13 @@ let paymentSaving=false, settingsSaving=false;
         showLoading(false);
         openPaymentPopup();
         } catch (e) {
+            if (window.nativeMeter?.supported && sTime && !pendingRideData) trackRide();
             showToast('Unable to finish ride. Please retry: ' + e.message, 'error');
         } finally { rideEnding = false; showLoading(false); }
     }
 
     function resetDriverAppOnly() {
+        if (window.nativeMeter?.supported) window.nativeMeter.call('stop').catch(e=>showToast(e.message,'error'));
         trackingShareToken=null;
         document.getElementById('share-location').checked=false;
         stopTrackingUpdates();
@@ -1031,6 +1076,7 @@ let paymentSaving=false, settingsSaving=false;
         document.getElementById('start-loc').value = '';
         document.getElementById('end-loc').value = '';
         document.getElementById('mobile').value = '';
+        document.getElementById('customer-name').value = '';
         document.getElementById('manual-fare').value = '';
         document.getElementById('discount-input').value = '';
         document.getElementById('wait-select').value = '0';
@@ -1271,7 +1317,7 @@ let paymentSaving=false, settingsSaving=false;
     }
 
     // ========== STREAMING_CHUNK: Managing Location Picker on Live Interactive Leaflet Map ==========
-    let activeMapField = null;
+    let activeMapField = null, pickerSearchLocation = null;
     function openMapPicker(field) {
         if (typeof L === 'undefined') { showToast('Map unavailable. Enter the address manually or reconnect to the internet.', 'warning'); return; }
         activeMapField = field;
@@ -1294,8 +1340,9 @@ let paymentSaving=false, settingsSaving=false;
     }
     
     function initPickerMap() {
-        const defaultLat = currentLat || 6.9271;
-        const defaultLng = currentLng || 79.8612;
+        const defaultLat = pickerSearchLocation?.lat ?? currentLat ?? 6.9271;
+        const defaultLng = pickerSearchLocation?.lng ?? currentLng ?? 79.8612;
+        pickerSearchLocation=null;
         
         try {
             if (mapObj) { mapObj.remove(); }
@@ -1584,7 +1631,10 @@ let paymentSaving=false, settingsSaving=false;
         if (!sch || sch.status === "completed") return;
         
         // Setup console tracking parameters
-        setMode('gps');
+        setMode('manual');
+        totalMeters=Math.max(0,Number(sch.km)||0)*1000;
+        document.getElementById('manual-km-input').value=(totalMeters/1000).toFixed(2);
+        document.getElementById('customer-name').value=sch.name||'';
         document.getElementById('start-loc').value = sch.start;
         document.getElementById('end-loc').value = sch.end;
         document.getElementById('mobile').value = sch.phone;
@@ -2254,6 +2304,7 @@ let paymentSaving=false, settingsSaving=false;
         document.addEventListener('visibilitychange', () => { if (!document.hidden && sTime) requestWakeLock(); });
         window.addEventListener('pagehide', saveRideState);
         setInterval(checkScheduleReminders, 30000);
+        if (window.nativeMeter?.supported) setInterval(()=>{if(sTime && !rideEnding) syncNativeMeter().catch(e=>cloudStore.reportStatus(e.message));},3000);
         
         if ('Notification' in window && Notification.permission === 'default') {
             Notification.requestPermission();
@@ -2279,7 +2330,6 @@ let paymentSaving=false, settingsSaving=false;
     
     async function saveSettings() {
         if(settingsSaving)return;
-        if(cloudStore.user?.role!=='admin'){showToast('Only an administrator may change tariffs.','warning');return;}
         if (sTime || pendingRideData) { showToast("Finish the ride and payment before changing tariffs.", "warning"); return; }
         if (['set-base','set-rate','set-wait','set-night'].some(id => {
             const val = document.getElementById(id).value;

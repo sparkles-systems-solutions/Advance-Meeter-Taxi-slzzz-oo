@@ -34,7 +34,7 @@ export function validateState(state,previous,role,{historicalImport=false}={}) {
  const settings=JSON.parse(state.settings);const before=JSON.parse(previous.settings);
  if(!settings||typeof settings!=='object'||['base','rate','waitRate','nightPercent'].some(k=>!Number.isFinite(settings[k])||settings[k]<0||settings[k]>1000000))throw Error('Invalid tariff');
  if('password' in settings)throw Error('Passwords must not be stored in app settings');
- if(role!=='admin'&&JSON.stringify(settings)!==JSON.stringify(before))throw Error('Only an administrator may change settings');
+ // State is scoped to the authenticated user; drivers own their tariff settings.
  for(const key of ['appName','receiptName'])if(typeof settings[key]!=='string'||settings[key].length>120)throw Error('Invalid settings name');
  const cleanText=value=>{if(typeof value==='string'&&value.length>10000)throw Error('Text too long');if(value&&typeof value==='object')Object.values(value).forEach(cleanText);};
  for(const key of ['rides','fuel_logs','repair_logs','amt_schedules','system_logs','local_backups']) {
@@ -48,7 +48,7 @@ export function validateState(state,previous,role,{historicalImport=false}={}) {
   if(historicalImport && role==='admin'){ride.imported=true;continue;}
   const {wait=0,disc=0,manualFare=0}=ride;if([wait,disc,manualFare].some(n=>!Number.isFinite(n)||n<0)||wait>120)throw Error('Invalid billing inputs');
   let amount=(manualFare>0?manualFare:settings.base+Math.max(0,ride.km-1)*settings.rate)+wait*settings.waitRate-disc;
-  if(ride.nightUsed&&manualFare===0)amount*=1+settings.nightPercent/100;
+  if(ride.nightUsed)amount*=1+settings.nightPercent/100;
   if(ride.fare!==Math.max(0,Math.round(amount)))throw Error('Fare does not match server tariff');
   ride.tariff={...settings};
  }

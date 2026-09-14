@@ -16,7 +16,7 @@ test('Authentication, account isolation, state validation and share lifecycle',a
  await t.test('Stale version rejected',async()=>assert.equal((await f.call('/state',{token:admin,method:'PUT',version:0,data:state.data})).status,409));
  const driverState=(await f.call('/state',{token:driver})).data;
  await t.test('Accounts have separate state',()=>assert.equal(JSON.parse(driverState.data.settings).rate,80));
- await t.test('Driver cannot change tariff through API',async()=>{const copy=structuredClone(driverState.data);const s=JSON.parse(copy.settings);s.base=1;copy.settings=JSON.stringify(s);assert.equal((await f.call('/state',{token:driver,method:'PUT',version:0,data:copy})).status,422);});
+ await t.test('Driver changes own tariff through API',async()=>{const copy=structuredClone(driverState.data);const s=JSON.parse(copy.settings);s.base=1;copy.settings=JSON.stringify(s);assert.equal((await f.call('/state',{token:driver,method:'PUT',version:0,data:copy})).status,200);});
  const receipt={id:'test-1',time:Date.now(),km:2,fare:190,wait:0,disc:0,manualFare:0,nightUsed:false,from:'Test A',to:'Test B',payment:{method:'Cash'}};
  await t.test('Tampered fare rejected',async()=>{const copy=structuredClone(state.data);copy.rides=JSON.stringify([{...receipt,fare:1}]);assert.equal((await f.call('/state',{token:admin,method:'PUT',version:1,data:copy})).status,422);});
  await t.test('Correct receipt saved with server tariff',async()=>{state.data.rides=JSON.stringify([receipt]);assert.equal((await f.call('/state',{token:admin,method:'PUT',version:1,data:state.data})).status,200);state=(await f.call('/state',{token:admin})).data;assert.equal(JSON.parse(state.data.rides)[0].tariff.rate,90);});

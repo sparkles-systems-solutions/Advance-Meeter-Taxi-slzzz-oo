@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve, extname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { randomBytes } from 'node:crypto';
-import { openStore, passwordMatches, passwordHash, digest, validateState } from './store.mjs';
+import { openStore, passwordMatches, passwordHash, digest, validateState, addUser } from './store.mjs';
 export function createApp({dbFile=process.env.AMT_DATABASE||'./data/taxi.sqlite',origin=process.env.AMT_ORIGIN||'http://localhost:5055',root=resolve('.') }={}) {
  const db=openStore(dbFile), attempts=new Map();const dummy=passwordHash(randomBytes(32).toString('hex'));
  const server=createServer(async(req,res)=>{
@@ -57,6 +57,39 @@ export function createApp({dbFile=process.env.AMT_DATABASE||'./data/taxi.sqlite'
      }catch(e){db.exec('ROLLBACK');throw e;}
      send(200,{version:row.version+1});return;
     }
+    if(path==='/api/admin/users'&&req.method==='GET'){
+     if(user.role!=='admin'){send(403,{error:'Administrator required'});return;}
+     const after=Math.max(0,Number(new URL(req.url,'http://localhost').searchParams.get('after'))||0);
+     const users=db.prepare('SELECT id,username,role,active FROM users WHERE id>? ORDER BY id LIMIT 100').all(after);
+     send(200,{users,next:users.length===100?users.at(-1).id:null});return;
+    }
+    const report=path.match(/^\/api\/admin\/users\/([1-9][0-9]*)\/reports$/);
+    if(report&&req.method==='GET'){
+     if(user.role!=='admin'){send(403,{error:'Administrator required'});return;}
+     const row=db.prepare('SELECT data FROM states WHERE user_id=?').get(Number(report[1]));if(!row){send(404,{error:'User not found'});return;}
+     const data=JSON.parse(row.data);send(200,{rides:JSON.parse(data.rides||'[]'),fuel:JSON.parse(data.fuel_logs||'[]'),repairs:JSON.parse(data.repair_logs||'[]')});return;
+    }
+    if(path==='/api/admin/users'&&req.method==='POST'){
+     if(user.role!=='admin'){send(403,{error:'Administrator required'});return;}
+     const data=await body(),accessKey=randomBytes(32).toString('hex');
+     if(typeof data.username!=='string'||!/^[a-zA-Z0-9_.-]{3,40}$/.test(data.username)||!['driver','admin'].includes(data.role)){send(400,{error:'Invalid account'});return;}
+     if(db.prepare('SELECT id FROM users WHERE username=?').get(data.username.toLowerCase())){send(409,{error:'Username already exists'});return;}
+     await addUser(db,data.username,accessKey,data.role);send(201,{username:data.username.toLowerCase(),accessKey});return;
+    }
+    const account=path.match(/^\/api\/admin\/users\/([1-9][0-9]*)\/(enable|disable|password)$/);
+    if(account&&req.method==='POST'){
+     if(user.role!=='admin'){send(403,{error:'Administrator required'});return;}
+     const id=Number(account[1]);if(!db.prepare('SELECT id FROM users WHERE id=?').get(id)){send(404,{error:'User not found'});return;}
+     if(id===user.id&&account[2]==='disable'){send(400,{error:'You cannot disable your own account'});return;}
+     const accessKey=account[2]==='password'?randomBytes(32).toString('hex'):undefined;
+     const hashed=accessKey?await passwordHash(accessKey):null;
+     db.exec('BEGIN IMMEDIATE');try{
+      if(hashed)db.prepare('UPDATE users SET password=? WHERE id=?').run(hashed,id);else db.prepare('UPDATE users SET active=? WHERE id=?').run(account[2]==='enable'?1:0,id);
+      db.prepare('DELETE FROM sessions WHERE user_id=?').run(id);db.prepare('DELETE FROM shares WHERE user_id=?').run(id);
+      db.prepare('INSERT INTO audit(user_id,event,time) VALUES(?,?,?)').run(user.id,'account_'+account[2]+':'+id,Date.now());db.exec('COMMIT');
+     }catch(e){db.exec('ROLLBACK');throw e;}
+     send(200,{ok:true,...(accessKey?{accessKey}:{})});return;
+    }
     if(path==='/api/track'&&req.method==='POST'){
      db.prepare('DELETE FROM shares WHERE expires<? OR user_id=?').run(Date.now(),user.id);
      const share=randomBytes(32).toString('hex');db.prepare('INSERT INTO shares VALUES(?,?,?,?)').run(digest(share),user.id,Date.now()+6*3600000,JSON.stringify({status:'waiting'}));send(201,{token:share});return;
@@ -64,6 +97,7 @@ export function createApp({dbFile=process.env.AMT_DATABASE||'./data/taxi.sqlite'
     if(shareMatch&&(req.method==='PUT'||req.method==='DELETE')){
      const hash=digest(shareMatch[1]);const owned=db.prepare('SELECT * FROM shares WHERE token_hash=? AND user_id=? AND expires>?').get(hash,user.id,Date.now());if(!owned){send(404,{error:'Share not found'});return;}
      if(req.method==='DELETE'){db.prepare('DELETE FROM shares WHERE token_hash=?').run(hash);send(200,{ok:true});return;}
+     if(JSON.parse(owned.payload).status==='completed'){send(409,{error:'Ride tracking is completed'});return;}
      const p=await body();if(!Number.isFinite(p.lat)||!Number.isFinite(p.lng)||Math.abs(p.lat)>90||Math.abs(p.lng)>180||!Number.isFinite(p.currentFare)||p.currentFare<0||!['active','completed'].includes(p.status)){send(422,{error:'Invalid tracking update'});return;}
      const safe={id:shareMatch[1],lat:p.lat,lng:p.lng,currentFare:p.currentFare,distanceTraveled:String(p.distanceTraveled).slice(0,20),status:p.status,mode:String(p.mode||'').slice(0,20),timestamp:Date.now()};
      db.prepare('UPDATE shares SET payload=?,expires=? WHERE token_hash=?').run(JSON.stringify(safe),p.status==='completed'?Date.now()+900000:owned.expires,hash);send(200,{ok:true});return;

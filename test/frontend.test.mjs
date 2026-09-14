@@ -37,8 +37,17 @@ test('Frontend, session adapter and database integration',async t=>{
   els['set-rate'].value='1000001';await run('saveSettings()');assert.equal(ctx.cloudStore.dirty,false);els['set-rate'].value='80';
  });
  await t.test('All five ride modes and Settings submenus remain callable',()=>{
-  for(const mode of ['auto','gps','manual','delivery','booking'])run(`setMode('${mode}')`);
+  for(const mode of ['auto','gps','manual','delivery','schedule'])run(`setMode('${mode}')`);
   for(const action of ['openLogin','openAppSettings','openFuelLogModal','openRepairLogModal','openReportsMenu','openDriverApp','openDatabaseBackupModal','openSystemLogModal'])run(action+'()');
+ });
+ await t.test('Manual, Delivery and Schedule retain manual controls and live GPS without changing distance',()=>{
+  for(const mode of ['manual','delivery','schedule']){
+   run(`setMode('${mode}')`);assert.equal(els['manual-controls'].style.display,'block');assert.equal(els.startBtn.disabled,false);
+   let callback;ctx.navigator.geolocation={watchPosition(cb){callback=cb;return 5;},clearWatch(){}};
+   run('sTime=new Date();totalMeters=3500;trackRide()');
+   callback({coords:{latitude:6.9,longitude:79.8,accuracy:5}});callback({coords:{latitude:6.901,longitude:79.8,accuracy:5}});
+   assert.equal(run('totalMeters'),3500);assert.equal(run('currentLat'),6.901);run('sTime=null;totalMeters=0;watchId=null');
+  }delete ctx.navigator.geolocation;run('currentLat=null;currentLng=null');
  });
  await t.test('Fuel and repair entries save to the account',async()=>{
   Object.assign(els['fuel-date'],{value:'2026-09-11'});els['fuel-liters'].value='3';els['fuel-price'].value='300';run('addFuelLog()');
