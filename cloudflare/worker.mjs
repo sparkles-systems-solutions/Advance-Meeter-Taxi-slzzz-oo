@@ -21,7 +21,10 @@ export function validateState(state,previous,role,{historicalImport=false}={}) {
  if(!settings||typeof settings!=='object'||['base','rate','waitRate','nightPercent'].some(k=>!Number.isFinite(settings[k])||settings[k]<0||settings[k]>1000000))throw Error('Invalid tariff');
  if('password' in settings)throw Error('Passwords must not be stored in app settings');
  // State is scoped to the authenticated user; drivers own their tariff settings.
- for(const key of ['appName','receiptName'])if(typeof settings[key]!=='string'||settings[key].length>120)throw Error('Invalid settings name');
+ const textLimits={appName:120,receiptName:120,address:300,businessMobile:40,email:120,website:200,receiptFooter:300};
+ for(const [key,limit] of Object.entries(textLimits))if(typeof (settings[key]??'')!=='string'||(settings[key]||'').length>limit)throw Error('Invalid app configuration');
+ if(!['en','bi'].includes(settings.language||'bi')||![7,30,90].includes(Number(settings.linkDays||30)))throw Error('Invalid app preference');
+ if(typeof (settings.logoData||'')!=='string'||(settings.logoData||'').length>220000||((settings.logoData||'')&&!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(settings.logoData)))throw Error('Invalid logo');
  const cleanText=value=>{if(typeof value==='string'&&value.length>10000)throw Error('Text too long');if(value&&typeof value==='object')Object.values(value).forEach(cleanText);};
  for(const key of ['rides','fuel_logs','repair_logs','amt_schedules','system_logs','local_backups']) {
   const rows=JSON.parse(state[key]||'[]');if(!Array.isArray(rows)||rows.length>50000)throw Error('Invalid list');cleanText(rows);
@@ -36,7 +39,7 @@ export function validateState(state,previous,role,{historicalImport=false}={}) {
   let amount=(manualFare>0?manualFare:settings.base+Math.max(0,ride.km-1)*settings.rate)+wait*settings.waitRate-disc;
   if(ride.nightUsed)amount*=1+settings.nightPercent/100;
   if(ride.fare!==Math.max(0,Math.round(amount)))throw Error('Fare does not match server tariff');
-  ride.tariff={...settings};
+  ride.tariff=Object.fromEntries(['base','rate','waitRate','nightPercent','appName','receiptName','address','businessMobile','email','website','receiptFooter','language'].map(k=>[k,settings[k]??'']));
  }
  for(const id of old.keys())if(!ids.has(id))throw Error('Paid receipts cannot be deleted');
  for(const [key,fields] of [['fuel_logs',['liters','price','total']],['repair_logs',['cost']]])for(const r of JSON.parse(state[key]||'[]'))if(!r||!Number.isFinite(r.id)||!Number.isFinite(Date.parse(r.date))||fields.some(k=>!Number.isFinite(r[k])||r[k]<0))throw Error('Invalid expense');
@@ -80,6 +83,9 @@ export default {
    const db=env.DB.withSession ? env.DB.withSession('first-primary') : env.DB;
    const q=(sql,...args)=>db.prepare(sql).bind(...args);
    const now=Date.now();
+   let rideLinksReady=false;
+   async function ensureRideLinks(){if(rideLinksReady)return;await q('CREATE TABLE IF NOT EXISTS ride_links(token_hash TEXT PRIMARY KEY,user_id INTEGER NOT NULL REFERENCES users(id),ride_id TEXT NOT NULL,expires INTEGER NOT NULL,payload TEXT NOT NULL,UNIQUE(user_id,ride_id))').run();rideLinksReady=true;}
+   const publicReceipt=(ride,settings={})=>({id:ride.id,time:ride.time,startTime:ride.startTime,km:ride.km,fare:ride.fare,from:String(ride.from||'').slice(0,500),to:String(ride.to||'').slice(0,500),wait:ride.wait||0,disc:ride.disc||0,nightUsed:!!ride.nightUsed,mode:String(ride.mode||'').slice(0,40),payment:{method:String(ride.payment?.method||'Paid').slice(0,40)},business:{base:settings.base||0,rate:settings.rate||0,waitRate:settings.waitRate||0,nightPercent:settings.nightPercent||0,appName:settings.appName||'Taxi',receiptName:settings.receiptName||'Official Receipt',logoData:settings.logoData||'',address:settings.address||'',businessMobile:settings.businessMobile||'',email:settings.email||'',website:settings.website||'',receiptFooter:settings.receiptFooter||'',language:settings.language||'bi'}});
    async function throttle(scope,identity,max) {
     const key=digest(scope+':'+identity);
     const r=await q(`INSERT INTO attempts(key,n,reset) VALUES(?,1,?) ON CONFLICT(key) DO UPDATE SET n=CASE WHEN reset<=? THEN 1 ELSE n+1 END, reset=CASE WHEN reset<=? THEN excluded.reset ELSE reset END RETURNING n`,key,now+900000,now,now).first();
@@ -148,7 +154,8 @@ export default {
    }
    const shareMatch=path.match(/^\/api\/track\/([a-f0-9]{64})$/);
    if(shareMatch&&method==='GET'){
-    const row=await q('SELECT payload FROM shares WHERE token_hash=? AND expires>?',digest(shareMatch[1]),now).first();
+    await ensureRideLinks();
+    const row=await q('SELECT payload FROM ride_links WHERE token_hash=? AND expires>?',digest(shareMatch[1]),now).first()||await q('SELECT payload FROM shares WHERE token_hash=? AND expires>?',digest(shareMatch[1]),now).first();
     if(!row)fail(404,'Tracking link unavailable or expired');return send(200,JSON.parse(row.payload));
    }
    if(!path.startsWith('/api/'))fail(404,'Not found');
@@ -172,19 +179,33 @@ export default {
     return send(200,{version:row.version+1});
    }
    if(path==='/api/track'&&method==='POST'){
+    await ensureRideLinks();
+    const data=(request.headers.get('Content-Type')||'').startsWith('application/json')?await jsonBody(request,4096):{},rideId=String(data?.rideId||'');
+    if(!rideId){const token=random();await q(`INSERT INTO shares(token_hash,user_id,expires,payload) VALUES(?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET token_hash=excluded.token_hash,expires=excluded.expires,payload=excluded.payload`,digest(token),user.id,now+6*3600000,'{"status":"waiting"}').run();return send(201,{token});}
+    if(!/^[A-Za-z0-9_.:-]{1,100}$/.test(rideId))fail(400,'Invalid ride ID');
+    await q('DELETE FROM ride_links WHERE expires<=?',now).run();
     const token=random();
-    await q(`INSERT INTO shares(token_hash,user_id,expires,payload) VALUES(?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET token_hash=excluded.token_hash,expires=excluded.expires,payload=excluded.payload`,digest(token),user.id,now+6*3600000,'{"status":"waiting"}').run();return send(201,{token});
+    try{await q('INSERT INTO ride_links(token_hash,user_id,ride_id,expires,payload) VALUES(?,?,?,?,?)',digest(token),user.id,rideId,now+24*3600000,JSON.stringify({status:'waiting',rideId,timestamp:now})).run();}
+    catch(e){fail(409,'This ride already has a passenger link. Reopen it from the active ride button.');}
+    return send(201,{token});
    }
    if(shareMatch&&['PUT','DELETE'].includes(method)){
+    await ensureRideLinks();
     const hash=digest(shareMatch[1]);
-    const owned=await q('SELECT expires,payload FROM shares WHERE token_hash=? AND user_id=? AND expires>?',hash,user.id,now).first();
-    if(!owned)fail(404,'Share not found');
-    if(method==='DELETE'){await q('DELETE FROM shares WHERE token_hash=? AND user_id=?',hash,user.id).run();return send(200,{ok:true});}
+    const owned=await q('SELECT ride_id,expires,payload FROM ride_links WHERE token_hash=? AND user_id=? AND expires>?',hash,user.id,now).first();
+    if(!owned){const legacy=await q('SELECT expires,payload FROM shares WHERE token_hash=? AND user_id=? AND expires>?',hash,user.id,now).first();if(!legacy)fail(404,'Share not found');if(method==='DELETE'){await q('DELETE FROM shares WHERE token_hash=? AND user_id=?',hash,user.id).run();return send(200,{ok:true});}const p=await jsonBody(request,8192);if(JSON.parse(legacy.payload).status==='completed')fail(409,'Ride tracking is completed');if(!p||!Number.isFinite(p.lat)||!Number.isFinite(p.lng)||Math.abs(p.lat)>90||Math.abs(p.lng)>180||!Number.isFinite(p.currentFare)||p.currentFare<0||!['active','completed'].includes(p.status))fail(422,'Invalid tracking update');const safe={id:shareMatch[1],lat:p.lat,lng:p.lng,currentFare:p.currentFare,distanceTraveled:String(p.distanceTraveled).slice(0,20),status:p.status,mode:String(p.mode||'').slice(0,20),timestamp:now};await q('UPDATE shares SET payload=?,expires=? WHERE token_hash=? AND user_id=?',JSON.stringify(safe),p.status==='completed'?now+900000:legacy.expires,hash,user.id).run();return send(200,{ok:true});}
+    if(method==='DELETE'){await q('DELETE FROM ride_links WHERE token_hash=? AND user_id=?',hash,user.id).run();return send(200,{ok:true});}
     const p=await jsonBody(request,8192);
-    if(JSON.parse(owned.payload).status==='completed')fail(409,'Ride tracking is completed');
     if(!p||!Number.isFinite(p.lat)||!Number.isFinite(p.lng)||Math.abs(p.lat)>90||Math.abs(p.lng)>180||!Number.isFinite(p.currentFare)||p.currentFare<0||!['active','completed'].includes(p.status))fail(422,'Invalid tracking update');
-    const safe={id:shareMatch[1],lat:p.lat,lng:p.lng,currentFare:p.currentFare,distanceTraveled:String(p.distanceTraveled).slice(0,20),status:p.status,mode:String(p.mode||'').slice(0,20),timestamp:now};
-    const r=await q("UPDATE shares SET payload=?,expires=? WHERE token_hash=? AND user_id=? AND expires>? AND json_extract(payload,'$.status')!='completed'",JSON.stringify(safe),p.status==='completed'?Math.min(owned.expires,now+900000):owned.expires,hash,user.id,now).run();
+    const prior=JSON.parse(owned.payload);if(prior.status==='completed'&&p.status!=='completed')fail(409,'Ride tracking is completed');
+    const safe={id:shareMatch[1],rideId:owned.ride_id,lat:p.lat,lng:p.lng,currentFare:p.currentFare,distanceTraveled:String(p.distanceTraveled).slice(0,20),status:p.status,mode:String(p.mode||'').slice(0,20),timestamp:now};
+    let expires=owned.expires;
+    if(p.status==='completed'&&typeof p.receiptId==='string'){
+     const state=await q('SELECT data FROM states WHERE user_id=?',user.id).first(),stored=JSON.parse(state.data),ride=JSON.parse(stored.rides||'[]').find(r=>r.id===p.receiptId);
+     if(!ride)fail(409,'Save payment before publishing the receipt');
+     safe.receipt=publicReceipt(ride,JSON.parse(stored.settings||'{}'));expires=now+([7,30,90].includes(Number(p.linkDays))?Number(p.linkDays):30)*86400000;
+    }else if(prior.receipt){safe.receipt=prior.receipt;expires=owned.expires;}
+    const r=await q('UPDATE ride_links SET payload=?,expires=? WHERE token_hash=? AND user_id=? AND expires>?',JSON.stringify(safe),expires,hash,user.id,now).run();
     if(!r.meta.changes)fail(404,'Share not found');return send(200,{ok:true});
    }
    if(path==='/api/admin/users'&&method==='GET'){
@@ -220,7 +241,8 @@ export default {
      accessKey=random();
      update=q('UPDATE users SET password=? WHERE id=?',digest(accessKey),id);
     }else update=q('UPDATE users SET active=? WHERE id=?',accountMatch[2]==='enable'?1:0,id);
-    await db.batch([update,q('DELETE FROM sessions WHERE user_id=?',id),q('DELETE FROM shares WHERE user_id=?',id),q('INSERT INTO audit(user_id,event,time) VALUES(?,?,?)',user.id,'account_'+accountMatch[2]+':'+id,now)]);
+    await ensureRideLinks();
+    await db.batch([update,q('DELETE FROM sessions WHERE user_id=?',id),q('DELETE FROM shares WHERE user_id=?',id),q('DELETE FROM ride_links WHERE user_id=? AND json_extract(payload,\'$.status\')!=\'completed\'',id),q('INSERT INTO audit(user_id,event,time) VALUES(?,?,?)',user.id,'account_'+accountMatch[2]+':'+id,now)]);
     return send(200,{ok:true,...(accessKey?{accessKey}:{})});
    }
    fail(404,'Not found');

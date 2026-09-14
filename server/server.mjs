@@ -36,7 +36,7 @@ export function createApp({dbFile=process.env.AMT_DATABASE||'./data/taxi.sqlite'
    }
    const shareMatch=path.match(/^\/api\/track\/([a-f0-9]{64})$/);
    if(shareMatch&&req.method==='GET'){
-    const record=db.prepare('SELECT payload FROM shares WHERE token_hash=? AND expires>?').get(digest(shareMatch[1]),Date.now());
+    const record=db.prepare('SELECT payload FROM ride_links WHERE token_hash=? AND expires>?').get(digest(shareMatch[1]),Date.now())||db.prepare('SELECT payload FROM shares WHERE token_hash=? AND expires>?').get(digest(shareMatch[1]),Date.now());
     if(!record){send(404,{error:'Tracking link unavailable or expired'});return;}send(200,JSON.parse(record.payload));return;
    }
    if(path.startsWith('/api/')){
@@ -85,22 +85,27 @@ export function createApp({dbFile=process.env.AMT_DATABASE||'./data/taxi.sqlite'
      const hashed=accessKey?await passwordHash(accessKey):null;
      db.exec('BEGIN IMMEDIATE');try{
       if(hashed)db.prepare('UPDATE users SET password=? WHERE id=?').run(hashed,id);else db.prepare('UPDATE users SET active=? WHERE id=?').run(account[2]==='enable'?1:0,id);
-      db.prepare('DELETE FROM sessions WHERE user_id=?').run(id);db.prepare('DELETE FROM shares WHERE user_id=?').run(id);
+      db.prepare('DELETE FROM sessions WHERE user_id=?').run(id);db.prepare('DELETE FROM shares WHERE user_id=?').run(id);db.prepare("DELETE FROM ride_links WHERE user_id=? AND json_extract(payload,'$.status')!='completed'").run(id);
       db.prepare('INSERT INTO audit(user_id,event,time) VALUES(?,?,?)').run(user.id,'account_'+account[2]+':'+id,Date.now());db.exec('COMMIT');
      }catch(e){db.exec('ROLLBACK');throw e;}
      send(200,{ok:true,...(accessKey?{accessKey}:{})});return;
     }
     if(path==='/api/track'&&req.method==='POST'){
-     db.prepare('DELETE FROM shares WHERE expires<? OR user_id=?').run(Date.now(),user.id);
-     const share=randomBytes(32).toString('hex');db.prepare('INSERT INTO shares VALUES(?,?,?,?)').run(digest(share),user.id,Date.now()+6*3600000,JSON.stringify({status:'waiting'}));send(201,{token:share});return;
+     const data=(req.headers['content-type']||'').startsWith('application/json')?await body():{},rideId=String(data?.rideId||'');if(!rideId){db.prepare('DELETE FROM shares WHERE expires<? OR user_id=?').run(Date.now(),user.id);const share=randomBytes(32).toString('hex');db.prepare('INSERT INTO shares VALUES(?,?,?,?)').run(digest(share),user.id,Date.now()+6*3600000,JSON.stringify({status:'waiting'}));send(201,{token:share});return;}if(!/^[A-Za-z0-9_.:-]{1,100}$/.test(rideId)){send(400,{error:'Invalid ride ID'});return;}
+     db.prepare('DELETE FROM ride_links WHERE expires<?').run(Date.now());
+     const share=randomBytes(32).toString('hex');try{db.prepare('INSERT INTO ride_links(token_hash,user_id,ride_id,expires,payload) VALUES(?,?,?,?,?)').run(digest(share),user.id,rideId,Date.now()+24*3600000,JSON.stringify({status:'waiting',rideId,timestamp:Date.now()}));}catch{send(409,{error:'This ride already has a passenger link. Reopen it from the active ride button.'});return;}send(201,{token:share});return;
     }
     if(shareMatch&&(req.method==='PUT'||req.method==='DELETE')){
-     const hash=digest(shareMatch[1]);const owned=db.prepare('SELECT * FROM shares WHERE token_hash=? AND user_id=? AND expires>?').get(hash,user.id,Date.now());if(!owned){send(404,{error:'Share not found'});return;}
-     if(req.method==='DELETE'){db.prepare('DELETE FROM shares WHERE token_hash=?').run(hash);send(200,{ok:true});return;}
-     if(JSON.parse(owned.payload).status==='completed'){send(409,{error:'Ride tracking is completed'});return;}
+     const hash=digest(shareMatch[1]);const owned=db.prepare('SELECT * FROM ride_links WHERE token_hash=? AND user_id=? AND expires>?').get(hash,user.id,Date.now());if(!owned){const legacy=db.prepare('SELECT * FROM shares WHERE token_hash=? AND user_id=? AND expires>?').get(hash,user.id,Date.now());if(!legacy){send(404,{error:'Share not found'});return;}if(req.method==='DELETE'){db.prepare('DELETE FROM shares WHERE token_hash=?').run(hash);send(200,{ok:true});return;}if(JSON.parse(legacy.payload).status==='completed'){send(409,{error:'Ride tracking is completed'});return;}const p=await body();if(!Number.isFinite(p.lat)||!Number.isFinite(p.lng)||Math.abs(p.lat)>90||Math.abs(p.lng)>180||!Number.isFinite(p.currentFare)||p.currentFare<0||!['active','completed'].includes(p.status)){send(422,{error:'Invalid tracking update'});return;}const safe={id:shareMatch[1],lat:p.lat,lng:p.lng,currentFare:p.currentFare,distanceTraveled:String(p.distanceTraveled).slice(0,20),status:p.status,mode:String(p.mode||'').slice(0,20),timestamp:Date.now()};db.prepare('UPDATE shares SET payload=?,expires=? WHERE token_hash=?').run(JSON.stringify(safe),p.status==='completed'?Date.now()+900000:legacy.expires,hash);send(200,{ok:true});return;}
+     if(req.method==='DELETE'){db.prepare('DELETE FROM ride_links WHERE token_hash=?').run(hash);send(200,{ok:true});return;}
      const p=await body();if(!Number.isFinite(p.lat)||!Number.isFinite(p.lng)||Math.abs(p.lat)>90||Math.abs(p.lng)>180||!Number.isFinite(p.currentFare)||p.currentFare<0||!['active','completed'].includes(p.status)){send(422,{error:'Invalid tracking update'});return;}
-     const safe={id:shareMatch[1],lat:p.lat,lng:p.lng,currentFare:p.currentFare,distanceTraveled:String(p.distanceTraveled).slice(0,20),status:p.status,mode:String(p.mode||'').slice(0,20),timestamp:Date.now()};
-     db.prepare('UPDATE shares SET payload=?,expires=? WHERE token_hash=?').run(JSON.stringify(safe),p.status==='completed'?Date.now()+900000:owned.expires,hash);send(200,{ok:true});return;
+     const prior=JSON.parse(owned.payload);if(prior.status==='completed'&&p.status!=='completed'){send(409,{error:'Ride tracking is completed'});return;}
+     const safe={id:shareMatch[1],rideId:owned.ride_id,lat:p.lat,lng:p.lng,currentFare:p.currentFare,distanceTraveled:String(p.distanceTraveled).slice(0,20),status:p.status,mode:String(p.mode||'').slice(0,20),timestamp:Date.now()};let expires=owned.expires;
+     if(p.status==='completed'&&typeof p.receiptId==='string'){
+      const state=JSON.parse(db.prepare('SELECT data FROM states WHERE user_id=?').get(user.id).data),ride=JSON.parse(state.rides||'[]').find(r=>r.id===p.receiptId);if(!ride){send(409,{error:'Save payment before publishing the receipt'});return;}
+      const settings=JSON.parse(state.settings||'{}');safe.receipt={id:ride.id,time:ride.time,startTime:ride.startTime,km:ride.km,fare:ride.fare,from:String(ride.from||'').slice(0,500),to:String(ride.to||'').slice(0,500),wait:ride.wait||0,disc:ride.disc||0,nightUsed:!!ride.nightUsed,mode:String(ride.mode||'').slice(0,40),payment:{method:String(ride.payment?.method||'Paid').slice(0,40)},business:{base:settings.base||0,rate:settings.rate||0,waitRate:settings.waitRate||0,nightPercent:settings.nightPercent||0,appName:settings.appName||'Taxi',receiptName:settings.receiptName||'Official Receipt',logoData:settings.logoData||'',address:settings.address||'',businessMobile:settings.businessMobile||'',email:settings.email||'',website:settings.website||'',receiptFooter:settings.receiptFooter||'',language:settings.language||'bi'}};expires=Date.now()+([7,30,90].includes(Number(p.linkDays))?Number(p.linkDays):30)*86400000;
+     }else if(prior.receipt)safe.receipt=prior.receipt;
+     db.prepare('UPDATE ride_links SET payload=?,expires=? WHERE token_hash=?').run(JSON.stringify(safe),expires,hash);send(200,{ok:true});return;
     }
     send(404,{error:'Not found'});return;
    }

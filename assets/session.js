@@ -5,7 +5,7 @@ window.cloudStore = (() => {
  const status=text=>{
   document.getElementById('sync-status').textContent=text;
   const warning=document.getElementById('sync-warning');
-  if(warning){warning.hidden=text==='Saved to server';warning.textContent=warning.hidden?'':text+' — Settings → Account & cloud sync';}
+  if(warning){const critical=/^(NOT SAVED|Tracking update failed|Sync paused)/i.test(text);warning.hidden=!critical;warning.textContent=critical?text:'';}
  };
  async function request(path,options={}) {
   if(base && !base.startsWith('https://') && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(base))throw Error('Backend URL must use HTTPS');

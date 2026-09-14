@@ -15,7 +15,8 @@ final class DriverController: UIViewController, WKScriptMessageHandler, WKNaviga
  func trusted(_ url:URL?) -> Bool {url?.scheme == "https" && url?.host == host && (url?.path.hasPrefix(path) ?? false)}
  override func viewDidLoad(){
   super.viewDidLoad();let config=WKWebViewConfiguration();config.userContentController.add(self,name:"taxi")
-  web=WKWebView(frame:view.bounds,configuration:config);web.autoresizingMask=[.flexibleWidth,.flexibleHeight];web.navigationDelegate=self;view.addSubview(web)
+  web=WKWebView(frame:.zero,configuration:config);web.translatesAutoresizingMaskIntoConstraints=false;web.navigationDelegate=self;view.addSubview(web)
+  NSLayoutConstraint.activate([web.topAnchor.constraint(equalTo:view.safeAreaLayoutGuide.topAnchor),web.bottomAnchor.constraint(equalTo:view.safeAreaLayoutGuide.bottomAnchor),web.leadingAnchor.constraint(equalTo:view.safeAreaLayoutGuide.leadingAnchor),web.trailingAnchor.constraint(equalTo:view.safeAreaLayoutGuide.trailingAnchor)])
   web.load(URLRequest(url:URL(string:"https://\(host)\(path)")!))
  }
  func webView(_ webView:WKWebView,decidePolicyFor navigationAction:WKNavigationAction,decisionHandler:@escaping (WKNavigationActionPolicy)->Void){
@@ -31,10 +32,16 @@ final class DriverController: UIViewController, WKScriptMessageHandler, WKNaviga
     case "configure":meter.config=d
     case "stop":meter.stop()
     case "snapshot":break
+    case "sharePdf":try sharePdf(d)
     default:throw NSError(domain:"Unknown action",code:1)
    };result=meter.state
   }catch{result=["error":error.localizedDescription]}
   if let bytes=try? JSONSerialization.data(withJSONObject:result),let json=String(data:bytes,encoding:.utf8){web.evaluateJavaScript("window.taxiNativeReply && window.taxiNativeReply(\(id),\(json))")}
+ }
+ func sharePdf(_ d:[String:Any])throws{
+  guard let encoded=d["base64"] as? String,encoded.count<8_000_000,let data=Data(base64Encoded:encoded) else{throw NSError(domain:"Invalid receipt PDF",code:1)}
+  let raw=(d["name"] as? String) ?? "taxi-receipt.pdf",name=raw.replacingOccurrences(of:"[^A-Za-z0-9._-]",with:"_",options:.regularExpression),url=FileManager.default.temporaryDirectory.appendingPathComponent(name);try data.write(to:url,options:.atomic)
+  let text=(d["text"] as? String) ?? "Taxi receipt",sheet=UIActivityViewController(activityItems:[text,url],applicationActivities:nil);if let pop=sheet.popoverPresentationController{pop.sourceView=view;pop.sourceRect=CGRect(x:view.bounds.midX,y:view.bounds.midY,width:1,height:1)};present(sheet,animated:true)
  }
 }
 

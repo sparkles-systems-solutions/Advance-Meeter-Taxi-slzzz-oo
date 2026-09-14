@@ -2,7 +2,7 @@ plugins { id 'com.android.application' }
 android {
     namespace 'com.sparkles.taxidriver'
     compileSdk 35
-    defaultConfig { applicationId 'com.sparkles.taxidriver'; minSdk 26; targetSdk 35; versionCode 2; versionName '0.2.1-test' }
+    defaultConfig { applicationId 'com.sparkles.taxidriver'; minSdk 26; targetSdk 35; versionCode 3; versionName '0.3.0-test' }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
 }
 
