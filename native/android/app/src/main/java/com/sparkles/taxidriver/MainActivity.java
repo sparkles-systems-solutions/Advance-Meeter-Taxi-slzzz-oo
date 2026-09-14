@@ -14,7 +14,7 @@ import java.util.Collections;
 public class MainActivity extends Activity {
  // Use a separate test Pages deployment before enabling the new native meter.
  static final String HOST="sparkles-systems-solutions.github.io";
- static final String PATH="/Advance-Meeter-Taxi-slzzz-oo/";
+ static final String PATH="/Advance-Meeter-Taxi-slzzz-oo/driver-test/";
  WebView web;
  boolean trusted(String url){if(url==null)return false;Uri u=Uri.parse(url);return "https".equals(u.getScheme())&&HOST.equals(u.getHost())&&u.getPath()!=null&&u.getPath().startsWith(PATH);}
  @Override public void onCreate(Bundle state){

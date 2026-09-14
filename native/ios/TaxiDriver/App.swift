@@ -11,7 +11,7 @@ import CoreLocation
 
 final class DriverController: UIViewController, WKScriptMessageHandler, WKNavigationDelegate {
  let meter=RideMeter();var web:WKWebView!
- let host="sparkles-systems-solutions.github.io", path="/Advance-Meeter-Taxi-slzzz-oo/"
+ let host="sparkles-systems-solutions.github.io", path="/Advance-Meeter-Taxi-slzzz-oo/driver-test/"
  func trusted(_ url:URL?) -> Bool {url?.scheme == "https" && url?.host == host && (url?.path.hasPrefix(path) ?? false)}
  override func viewDidLoad(){
   super.viewDidLoad();let config=WKWebViewConfiguration();config.userContentController.add(self,name:"taxi")
