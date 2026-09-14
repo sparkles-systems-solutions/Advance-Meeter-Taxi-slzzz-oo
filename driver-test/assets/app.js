@@ -386,7 +386,7 @@ let paymentSaving=false, settingsSaving=false;
             currentLocationAddress = state.currentLocationAddress || "";
             currentDestinationAddress = state.destinationAddress || "";
             currentTrackingId = state.trackingId || null;
-            trackingShareToken = state.sharingEnabled && /^[a-f0-9]{64}$/.test(state.trackingShareToken||'') ? state.trackingShareToken : null;
+            trackingShareToken = state.sharingEnabled && /^(?:[A-Za-z0-9_-]{24}|[a-f0-9]{64})$/.test(state.trackingShareToken||'') ? state.trackingShareToken : null;
             document.getElementById('share-location').checked = Boolean(trackingShareToken);
             deliveryPickupName = state.deliveryPickupName || "";
             deliveryPickupPhone = state.deliveryPickupPhone || "";
@@ -2361,7 +2361,10 @@ let paymentSaving=false, settingsSaving=false;
     };
 
     // ========== HELPER ROUTINES ==========
-    function generateTrackingId() { return Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join(''); }
+    function generateTrackingId() {
+        const d=new Date(),part=n=>String(n).padStart(2,'0'),suffix=Array.from(crypto.getRandomValues(new Uint8Array(2)),b=>b.toString(16).padStart(2,'0')).join('').toUpperCase();
+        return `TR-${String(d.getFullYear()).slice(-2)}${part(d.getMonth()+1)}${part(d.getDate())}-${part(d.getHours())}${part(d.getMinutes())}${part(d.getSeconds())}-${suffix}`;
+    }
     function closeM(id) { document.getElementById(id).style.display = 'none'; }
     function openLogin() { document.getElementById('settings-modal').style.display='flex'; }
     function checkLogin() {
@@ -2538,8 +2541,10 @@ let paymentSaving=false, settingsSaving=false;
     async function receiptPdfBlob(element) {
         if (!window.jspdf || typeof html2canvas === 'undefined') throw Error('PDF libraries are not available while offline');
         const canvas=await html2canvas(element,{scale:2,backgroundColor:'#ffffff',useCORS:true});
-        const height=canvas.height*80/canvas.width,doc=new window.jspdf.jsPDF({unit:'mm',format:[80,Math.max(100,height+4)]});
-        doc.addImage(canvas.toDataURL('image/jpeg',.92),'JPEG',0,0,80,height);return doc.output('blob');
+        const pageWidth=148,pageHeight=210,margin=8,maxWidth=pageWidth-margin*2,maxHeight=pageHeight-margin*2;
+        const scale=Math.min(maxWidth/canvas.width,maxHeight/canvas.height),width=canvas.width*scale,height=canvas.height*scale;
+        const doc=new window.jspdf.jsPDF({unit:'mm',format:'a5',orientation:'portrait'});
+        doc.addImage(canvas.toDataURL('image/jpeg',.92),'JPEG',(pageWidth-width)/2,margin,width,height);return doc.output('blob');
     }
     function downloadBlob(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1500);}
     async function downloadElementPDF(element,name){try{downloadBlob(await receiptPdfBlob(element),name);showToast('Receipt PDF downloaded.','success');}catch(e){showToast(e.message+'. Use Print / Save as PDF.','error');}}
@@ -2594,7 +2599,7 @@ let paymentSaving=false, settingsSaving=false;
             document.getElementById('trackingPopupModal').style.display='flex';
         } catch(e) { showToast('Could not create a tracking link: '+e.message,'error'); }
     }
-    function trackingPublicUrl(token){const url=new URL(location.href);url.search='';url.hash='';url.searchParams.set('track',token);return url.href;}
+    function trackingPublicUrl(token){const url=new URL(location.href);url.search='';url.hash='';url.searchParams.set('t',token);return url.href;}
     
     function closeTrackingPopup() {
         document.getElementById('trackingPopupModal').style.display = 'none';
@@ -2626,12 +2631,12 @@ let paymentSaving=false, settingsSaving=false;
 
     // ========== Passenger Portal Bootstrap ==========
     const urlParams = new URLSearchParams(window.location.search);
-    const trackingQuery = urlParams.get('track');
+    const trackingQuery = urlParams.get('t') || urlParams.get('track');
     if (trackingQuery) {
         document.getElementById('account-gate').hidden=true;
         document.getElementById('main-driver-view').classList.add('hidden');
         document.getElementById('passenger-tracking-view').classList.remove('hidden');
-        document.getElementById('track-trip-id').innerText = trackingQuery;
+        document.getElementById('track-trip-id').innerText = 'Loading…';
         
         bootstrapPassengerTrackerMap();
         listenToTelemetryStream(trackingQuery);
@@ -2658,7 +2663,7 @@ let paymentSaving=false, settingsSaving=false;
     }
     
     function listenToTelemetryStream(trackingId) {
-        if (!/^[a-f0-9]{64}$/.test(trackingId)) { document.getElementById('track-status').textContent='Invalid tracking link'; return; }
+        if (!/^(?:[A-Za-z0-9_-]{24}|[a-f0-9]{64})$/.test(trackingId)) { document.getElementById('track-status').textContent='Invalid tracking link'; return; }
         let stopped=false;
         async function poll(){
             if(stopped)return;
@@ -2666,6 +2671,7 @@ let paymentSaving=false, settingsSaving=false;
                 const payload=await cloudStore.request('/track/'+trackingId);
                 if(payload.status==='waiting'){document.getElementById('track-status').textContent='Waiting for driver GPS';return;}
                 latestPassengerPayload=payload;
+                document.getElementById('track-trip-id').textContent=payload.rideId||payload.receipt?.id||'Taxi ride';
                 if(passengerMarker&&passengerMap){passengerMarker.setLatLng([payload.lat,payload.lng]);passengerMap.setView([payload.lat,payload.lng]);}
                 document.getElementById('track-pickup-location').textContent='Address hidden';
                 document.getElementById('track-destination').textContent='Address hidden';
