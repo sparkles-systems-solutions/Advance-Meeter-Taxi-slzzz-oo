@@ -198,7 +198,7 @@ let paymentSaving=false, settingsSaving=false;
 
     // ========== STREAMING_CHUNK: Core State Initializations & Expanded Modals ==========
     let sTime = null, watchId = null, totalMeters = 0, lastLat = null, lastLon = null, currentLat = null, currentLng = null, currentRID = "", nightActive = false, gpsReady = false, currentMode = "auto", pendingRideData = null, selectedMethod = "cash", currentLocationAddress = "", currentLocationLat = null, currentLocationLon = null, startLocationAddress = "", currentDestinationAddress = "", mapObj = null, mapMarker = null, mapPickerField = null, currentTrackingId = null;
-    let deliveryPickupName="", deliveryPickupPhone="", deliveryDeliveryName="", deliveryDeliveryPhone="", routeStops=[];
+    let deliveryPickupName="", deliveryPickupPhone="", deliveryDeliveryName="", deliveryDeliveryPhone="", routeStops=[], routeStopPoints={}, routeRevision=0, routeDraftDestinationPoint=null, routeDraftDestinationAddress='';
     let selectedPickupPoint=null, selectedDestinationPoint=null, estimatedDistanceMeters=0, estimatedDurationSeconds=0, estimateBaselineMeters=0;
     let recoveredMeters=0, gpsGapCount=0, gpsQualityState='waiting', gapRecoveryBusy=false;
     let SETTINGS = { base: 100, rate: 80, waitRate: 5, nightPercent: 10, deliveryTariff:{base:100,rate:80,waitRate:5,nightPercent:10}, scheduleTariff:{base:100,rate:80,waitRate:5,nightPercent:10}, appName: "ADVANCE MEETER TAXI", receiptName: "AMT OFFICIAL RECEIPT", logoData: "", address: "", businessMobile: "", email: "", website: "", receiptFooter: "Thank you for riding with us!", language: "bi", linkDays: 30 };
@@ -332,10 +332,10 @@ let paymentSaving=false, settingsSaving=false;
             cloudStore.setItem('amt_ride_state', JSON.stringify({
                 isRideActive: true, startTime: sTime, totalMeters, lastLat, lastLon, currentMode, nightActive, startLocationAddress, currentLocationAddress, gpsReady: true, destinationAddress: currentDestinationAddress, trackingId: currentTrackingId,
                 deliveryPickupName, deliveryPickupPhone, deliveryDeliveryName, deliveryDeliveryPhone,
-                activeBookingId, activeBookingManualFare, routeStops, sharingEnabled:document.getElementById('share-location').checked, trackingShareToken,
+                activeBookingId, activeBookingManualFare, routeStops, routeStopPoints, routeRevision, sharingEnabled:document.getElementById('share-location').checked, trackingShareToken,
                 selectedPickupPoint, selectedDestinationPoint, estimatedDistanceMeters, estimatedDurationSeconds, estimateBaselineMeters,
                 recoveredMeters, gpsGapCount, gpsQualityState,
-                form: Object.fromEntries(['customer-name','mobile','wait-select','discount-input','manual-fare','start-loc','end-loc','pickup-name','pickup-phone','delivery-name','delivery-phone'].map(id => [id, document.getElementById(id).value]))
+                form: Object.fromEntries(['customer-name','customer-email','mobile','wait-select','discount-input','manual-fare','start-loc','end-loc','pickup-name','pickup-phone','delivery-name','delivery-phone'].map(id => [id, document.getElementById(id).value]))
             }));
             configureNativeMeter();
             broadcastOdometerTelemetry();
@@ -345,7 +345,7 @@ let paymentSaving=false, settingsSaving=false;
     // ========== Peer-to-Peer Telemetry Broadcast Engine ==========
     async function broadcastOdometerTelemetry(forceStatus='active') {
         if (!trackingShareToken || !Number.isFinite(currentLat) || !Number.isFinite(currentLng)) return;
-        try { await cloudStore.request('/track/'+trackingShareToken,{method:'PUT',body:JSON.stringify({lat:currentLat,lng:currentLng,currentFare:calcFare(),distanceTraveled:(totalMeters/1000).toFixed(2),status:forceStatus,mode:currentMode})}); }
+        try { await cloudStore.request('/track/'+trackingShareToken,{method:'PUT',body:JSON.stringify({lat:currentLat,lng:currentLng,currentFare:calcFare(),distanceTraveled:(totalMeters/1000).toFixed(2),status:forceStatus,mode:currentMode,route:{destination:currentDestinationAddress,stops:routeStops,estimatedRemainingKm:estimatedDistanceMeters>0?Number((estimatedDistanceMeters/1000).toFixed(2)):null,revision:routeRevision}})}); }
         catch(e) { cloudStore.reportStatus('Tracking update failed: '+e.message); }
     }
     function activeTariff(mode=currentMode){const custom=mode==='delivery'?SETTINGS.deliveryTariff:mode==='schedule'?SETTINGS.scheduleTariff:null;return custom&&['base','rate','waitRate','nightPercent'].every(k=>Number.isFinite(Number(custom[k])))?custom:SETTINGS;}
@@ -394,6 +394,8 @@ let paymentSaving=false, settingsSaving=false;
             activeBookingId = state.activeBookingId || null;
             activeBookingManualFare = state.activeBookingManualFare || null;
             routeStops = Array.isArray(state.routeStops) ? state.routeStops.slice(0,5) : [];
+            routeStopPoints = state.routeStopPoints && typeof state.routeStopPoints === 'object' ? state.routeStopPoints : {};
+            routeRevision = Math.max(0, Number(state.routeRevision) || 0);
             selectedPickupPoint = validRoadPoint(state.selectedPickupPoint) ? state.selectedPickupPoint : null;
             selectedDestinationPoint = validRoadPoint(state.selectedDestinationPoint) ? state.selectedDestinationPoint : null;
             estimatedDistanceMeters = Math.max(0, Number(state.estimatedDistanceMeters) || 0);
@@ -513,7 +515,7 @@ let paymentSaving=false, settingsSaving=false;
     }
     function configureNativeMeter() {
         if (!window.nativeMeter?.supported || !sTime) return;
-        cloudStore.configureNative({share:document.getElementById('share-location').checked?trackingShareToken:'',rates:activeTariff(),mode:currentMode,manualMeters:totalMeters,manualFare:Math.max(0,Number(document.getElementById('manual-fare').value)||0),wait:Number(document.getElementById('wait-select').value)||0,discount:Math.max(0,Number(document.getElementById('discount-input').value)||0),night:nightActive}).catch(e=>cloudStore.reportStatus(e.message));
+        cloudStore.configureNative({share:document.getElementById('share-location').checked?trackingShareToken:'',rates:activeTariff(),mode:currentMode,manualMeters:totalMeters,manualFare:Math.max(0,Number(document.getElementById('manual-fare').value)||0),wait:Number(document.getElementById('wait-select').value)||0,discount:Math.max(0,Number(document.getElementById('discount-input').value)||0),night:nightActive,route:{destination:currentDestinationAddress,stops:routeStops,estimatedRemainingKm:estimatedDistanceMeters>0?Number((estimatedDistanceMeters/1000).toFixed(2)):null,revision:routeRevision}}).catch(e=>cloudStore.reportStatus(e.message));
     }
 
     function trackRide() {
@@ -840,12 +842,21 @@ let paymentSaving=false, settingsSaving=false;
         return validRoadPoint(point)?point:null;
     }
 
-    async function roadRoute(from,to) {
-        if(!validRoadPoint(from)||!validRoadPoint(to)) throw Error('Route points unavailable');
-        const url=`https://router.project-osrm.org/route/v1/driving/${Number(from.lng)},${Number(from.lat)};${Number(to.lng)},${Number(to.lat)}?overview=false&alternatives=false&steps=false`;
+    async function roadRouteThrough(points) {
+        if(!Array.isArray(points)||points.length<2||points.length>7||points.some(point=>!validRoadPoint(point))) throw Error('Route points unavailable');
+        const coordinates=points.map(point=>`${Number(point.lng)},${Number(point.lat)}`).join(';');
+        const url=`https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=false&alternatives=false&steps=false`;
         const res=await fetchWithTimeout(url), data=await res.json(), route=data?.routes?.[0];
         if(!res.ok||!route||!Number.isFinite(route.distance)||route.distance<0) throw Error('Road estimate unavailable');
         return {distance:route.distance,duration:Number(route.duration)||0};
+    }
+    async function roadRoute(from,to) { return roadRouteThrough([from,to]); }
+
+    async function routePointForAddress(address) {
+        const key=String(address||'').trim();
+        const cached=routeStopPoints[key];
+        if(validRoadPoint(cached))return cached;
+        const point=await geocodeRoadPoint(key);if(point)routeStopPoints[key]=point;return point;
     }
 
     async function refreshRouteEstimate(showFailure=false) {
@@ -858,10 +869,12 @@ let paymentSaving=false, settingsSaving=false;
         try{
             if(!to) to=await geocodeRoadPoint(destination);
             if(!to) throw Error('Destination not found');
-            const route=await roadRoute(from,to);
+            const stopPoints=[];
+            for(const stop of routeStops){const point=await routePointForAddress(stop);if(!point)throw Error('Stop not found: '+stop);stopPoints.push(point);}
+            const route=await roadRouteThrough([from,...stopPoints,to]);
             selectedPickupPoint=from;selectedDestinationPoint=to;
             estimatedDistanceMeters=route.distance;estimatedDurationSeconds=route.duration;estimateBaselineMeters=totalMeters;
-            updateReliabilityPanel();saveRideState();return true;
+            updateReliabilityPanel();updateRouteSummary();saveRideState();return true;
         }catch(e){
             if(showFailure)showToast('Road estimate unavailable. Actual GPS meter continues.','warning');
             return false;
@@ -952,6 +965,8 @@ let paymentSaving=false, settingsSaving=false;
         if (pendingRideData) { openPaymentPopup(); return; }
         if (!sTime && loadRideState()) { showToast('Restore the previous ride or use RESET before starting a new one.', 'warning'); return; }
         if(sTime) { showToast("Ride already active!", 'warning'); return; }
+        const customerEmail=document.getElementById('customer-email')?.value.trim()||'';
+        if(customerEmail&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail)){showToast('Enter a valid customer email or leave it blank.','warning');return;}
         
         if (!usesManualDistance() && !gpsReady) { showToast('Wait for an accurate GPS fix or use Manual mode.', 'warning'); return; }
         if(currentMode === 'auto') { 
@@ -1144,6 +1159,7 @@ let paymentSaving=false, settingsSaving=false;
             from: fromAddress, 
             to: finalAddress, 
             customerName: document.getElementById('customer-name')?.value.trim() || '',
+            customerEmail: document.getElementById('customer-email')?.value.trim() || '',
             mobile: document.getElementById('mobile').value || "N/A", 
             wait: parseInt(document.getElementById('wait-select').value) || 0, 
             disc: Math.max(0, parseFloat(document.getElementById('discount-input').value) || 0), 
@@ -1153,6 +1169,7 @@ let paymentSaving=false, settingsSaving=false;
             time: Date.now(),
             trackingId: currentTrackingId,
             stops: routeStops.slice(),
+            routeRevision,
             estimatedKm: estimatedDistanceMeters>0?Number((estimatedDistanceMeters/1000).toFixed(3)):null,
             estimatedFare: estimatedDistanceMeters>0?estimateFareForMeters(estimatedDistanceMeters):null,
             recoveredKm: Number((recoveredMeters/1000).toFixed(3)),
@@ -1203,7 +1220,7 @@ let paymentSaving=false, settingsSaving=false;
         document.getElementById('share-location').checked=false;
         stopTrackingUpdates();
         currentTrackingId = null;
-        routeStops = [];
+        routeStops = [];routeStopPoints={};routeRevision=0;
         selectedPickupPoint=null;selectedDestinationPoint=null;estimatedDistanceMeters=0;estimatedDurationSeconds=0;
         estimateBaselineMeters=0;recoveredMeters=0;gpsGapCount=0;gpsQualityState='waiting';gapRecoveryBusy=false;
         document.getElementById('restore-banner').classList.add('hidden');
@@ -1237,6 +1254,7 @@ let paymentSaving=false, settingsSaving=false;
         document.getElementById('end-loc').value = '';
         document.getElementById('mobile').value = '';
         document.getElementById('customer-name').value = '';
+        document.getElementById('customer-email').value = '';
         document.getElementById('manual-fare').value = '';
         document.getElementById('discount-input').value = '';
         document.getElementById('wait-select').value = '0';
@@ -1350,7 +1368,7 @@ let paymentSaving=false, settingsSaving=false;
     async function publishCompletedReceipt(ride){
         const lat=Number.isFinite(ride?.finalLat)?ride.finalLat:(Number.isFinite(currentLat)?currentLat:lastLat),lng=Number.isFinite(ride?.finalLng)?ride.finalLng:(Number.isFinite(currentLng)?currentLng:lastLon);
         if(!ride?.trackingToken||!Number.isFinite(lat)||!Number.isFinite(lng))return;
-        try{await cloudStore.request('/track/'+ride.trackingToken,{method:'PUT',body:JSON.stringify({lat,lng,currentFare:Number(ride.fare),distanceTraveled:Number(ride.km).toFixed(2),status:'completed',mode:ride.mode,receiptId:ride.id,linkDays:SETTINGS.linkDays})});}
+        try{await cloudStore.request('/track/'+ride.trackingToken,{method:'PUT',body:JSON.stringify({lat,lng,currentFare:Number(ride.fare),distanceTraveled:Number(ride.km).toFixed(2),status:'completed',mode:ride.mode,receiptId:ride.id,linkDays:SETTINGS.linkDays,route:{destination:ride.to,stops:Array.isArray(ride.stops)?ride.stops:[],estimatedRemainingKm:0,revision:Math.max(0,Number(ride.routeRevision)||0)}})});}
         catch(e){showToast('Payment saved. Passenger receipt link will retry when this receipt is reopened.','warning');}
     }
 
@@ -1497,8 +1515,10 @@ let paymentSaving=false, settingsSaving=false;
         modal.style.display = 'flex';
         
         let titleText = "Select Pickup Location";
-        if (field === 'end' || field === 'sch-end') {
+        if (field === 'end' || field === 'sch-end' || field === 'route-final') {
             titleText = "Select Drop Location";
+        } else if(field === 'route-stop') {
+            titleText = "Select Intermediate Stop";
         }
         document.getElementById('map-title').innerText = titleText;
         
@@ -1615,10 +1635,17 @@ let paymentSaving=false, settingsSaving=false;
         } else if (activeMapField === 'sch-end') {
             document.getElementById('sch-end').value = address;
             currentDestinationAddress = address;
+        } else if(activeMapField === 'route-stop') {
+            document.getElementById('route-new-stop').value=address;
+        } else if(activeMapField === 'route-final') {
+            document.getElementById('route-final-destination').value=address;
+            routeDraftDestinationAddress=address;
         }
         if(mapMarker){
             const p=mapMarker.getLatLng(),point={lat:Number(p.lat),lng:Number(p.lng)};
             if(activeMapField==='start'||activeMapField==='sch-start')selectedPickupPoint=point;
+            else if(activeMapField==='route-stop')routeStopPoints[address]=point;
+            else if(activeMapField==='route-final'){routeDraftDestinationPoint=point;}
             else selectedDestinationPoint=point;
         }
         if(sTime)refreshRouteEstimate(false).catch(()=>{});
@@ -2625,19 +2652,51 @@ let paymentSaving=false, settingsSaving=false;
     }
 
     // Open Phone Navigation links
-    function manageRoute() {
-        if(!sTime){showToast('Start the ride before changing its route.','info');return;}
-        const next=prompt('Enter the next stop or new final destination:',currentDestinationAddress||document.getElementById('end-loc').value||'');
-        if(!next||!next.trim())return;const clean=next.trim();
-        if(currentDestinationAddress&&currentDestinationAddress!==clean)routeStops.push(currentDestinationAddress);
-        routeStops=routeStops.filter(Boolean).slice(-5);currentDestinationAddress=clean;document.getElementById('end-loc').value=clean;
-        selectedDestinationPoint=null;estimatedDistanceMeters=0;estimatedDurationSeconds=0;
-        if(usesManualDistance()&&Number(document.getElementById('manual-fare').value)>0&&confirm('Change the agreed fare for this new destination? Press Cancel to keep the current fare.')){
-            const fare=prompt('Enter the new agreed fare (LKR):',document.getElementById('manual-fare').value);
-            if(fare!==null&&Number.isFinite(Number(fare))&&Number(fare)>=0)document.getElementById('manual-fare').value=Number(fare);
-        }
-        saveRideState();updateDisplay();refreshRouteEstimate(true).catch(()=>{});
-        showToast('Route updated. Distance already travelled was kept.','success');
+    function renderRouteManager() {
+        const list=document.getElementById('route-stops-list'),count=document.getElementById('route-stop-count');if(!list||!count)return;
+        count.textContent=`${routeStops.length} / 5`;
+        list.innerHTML=routeStops.length?routeStops.map((stop,index)=>`<div class="grid grid-cols-[auto_1fr_auto] gap-2 items-center bg-slate-950 border border-slate-800 rounded-lg p-2"><span class="w-6 h-6 rounded-full bg-amber-600 text-white grid place-items-center font-bold">${index+1}</span><span class="break-words text-slate-200">${escapeHTML(stop)}</span><div class="grid grid-cols-3 gap-1"><button aria-label="Move stop up" class="px-2 bg-slate-800 rounded" onclick="moveRouteStop(${index},-1)">↑</button><button aria-label="Move stop down" class="px-2 bg-slate-800 rounded" onclick="moveRouteStop(${index},1)">↓</button><button aria-label="Delete stop" class="px-2 bg-red-900/70 text-red-200 rounded" onclick="removeRouteStop(${index})">✕</button></div></div>`).join(''):'<div class="text-center text-slate-600 py-2">No intermediate stops</div>';
+    }
+
+    function openRouteManager() {
+        const origin=startLocationAddress||currentLocationAddress||(Number.isFinite(currentLat)?`${currentLat.toFixed(5)}, ${currentLng.toFixed(5)}`:'Waiting for GPS');
+        document.getElementById('route-origin-display').textContent=sTime?'Current GPS: '+(currentLocationAddress||origin):origin;
+        document.getElementById('route-final-destination').value=currentDestinationAddress||document.getElementById('end-loc')?.value||'';routeDraftDestinationPoint=selectedDestinationPoint;routeDraftDestinationAddress=currentDestinationAddress;
+        document.getElementById('route-new-stop').value='';renderRouteManager();updateRouteSummary();
+        document.getElementById('route-manager-modal').style.display='flex';
+    }
+
+    function manageRoute(){openRouteManager();}
+
+    function addRouteStop() {
+        const input=document.getElementById('route-new-stop'),value=input.value.trim();
+        if(!value){showToast('Enter or select a stop first.','warning');return;}
+        if(routeStops.length>=5){showToast('Maximum five intermediate stops.','warning');return;}
+        if(routeStops.some(stop=>stop.toLowerCase()===value.toLowerCase())){showToast('This stop is already in the route.','warning');return;}
+        routeStops.push(value);input.value='';renderRouteManager();updateRouteSummary();
+    }
+
+    function removeRouteStop(index){if(index<0||index>=routeStops.length)return;delete routeStopPoints[routeStops[index]];routeStops.splice(index,1);renderRouteManager();updateRouteSummary();}
+    function moveRouteStop(index,direction){const next=index+direction;if(index<0||next<0||index>=routeStops.length||next>=routeStops.length)return;[routeStops[index],routeStops[next]]=[routeStops[next],routeStops[index]];renderRouteManager();}
+    function clearManagedRoute(){routeStops=[];routeStopPoints={};renderRouteManager();updateRouteSummary();}
+
+    function updateRouteSummary() {
+        const el=document.getElementById('route-summary');if(!el)return;
+        el.textContent=estimatedDistanceMeters>0?`${routeStops.length} stop(s) · ${(estimatedDistanceMeters/1000).toFixed(2)} km road route · about ${Math.max(1,Math.round(estimatedDurationSeconds/60))} min · LKR ${estimateFareForMeters(estimatedDistanceMeters).toFixed(2)}`:'Save the route to calculate road distance and estimated fare.';
+    }
+
+    async function saveRouteManager() {
+        const input=document.getElementById('route-final-destination'),destination=input.value.trim();
+        if(!destination){showToast('Enter the final destination.','warning');return;}
+        const changed=destination!==currentDestinationAddress;currentDestinationAddress=destination;document.getElementById('end-loc').value=destination;
+        if(changed){selectedDestinationPoint=destination===routeDraftDestinationAddress&&validRoadPoint(routeDraftDestinationPoint)?routeDraftDestinationPoint:null;estimatedDistanceMeters=0;estimatedDurationSeconds=0;}
+        routeRevision++;showLoading(true);
+        try{
+            const ok=await refreshRouteEstimate(true);if(!ok)return;
+            saveRideState();await broadcastOdometerTelemetry();updateRouteSummary();
+            if(sTime)addSystemLog('INFO','Route updated',`${routeStops.length} stop(s), destination: ${destination}`);
+            showToast('Full road route saved and recalculated.','success');
+        }finally{showLoading(false);}
     }
 
     function openPhoneNavigation() {
@@ -2646,7 +2705,8 @@ let paymentSaving=false, settingsSaving=false;
         let url;
         if(destination){
             const origin=hasGPS?`${currentLat},${currentLng}`:startLocationAddress;
-            url=`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&travelmode=driving`;
+            const waypoints=routeStops.length?`&waypoints=${encodeURIComponent(routeStops.join('|'))}`:'';
+            url=`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}${waypoints}&travelmode=driving`;
         }else if(hasGPS){
             url=`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${currentLat},${currentLng}`)}`;
         }else{showToast('Enter a destination or wait for GPS before opening the map.','warning');return;}
@@ -2706,22 +2766,31 @@ let paymentSaving=false, settingsSaving=false;
     const blobBase64=blob=>new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result).split(',')[1]);r.onerror=reject;r.readAsDataURL(blob);});
     async function sendEmailWithAttachment() {
         if (!activeReceiptObject) return;
-        const name=`AMT_RECEIPT_${activeReceiptObject.id}.pdf`,subject=`${SETTINGS.appName} - Trip Invoice`,body=`Your paid taxi receipt ${activeReceiptObject.id} is attached for testing. Total paid: LKR ${Number(activeReceiptObject.fare).toFixed(2)}.`;
+        const name=`AMT_RECEIPT_${activeReceiptObject.id}.pdf`,subject=`${SETTINGS.appName} - Trip Receipt`,body=`Thank you for travelling with ${SETTINGS.appName}. Your paid A5 receipt ${activeReceiptObject.id} is attached. Total paid: LKR ${Number(activeReceiptObject.fare).toFixed(2)}.`,email=String(activeReceiptObject.customerEmail||'').trim();
         try{
             const blob=await receiptPdfBlob(document.getElementById('receipt-view'));
-            if(window.nativeMeter?.supported){await window.nativeMeter.call('sharePdf',{base64:await blobBase64(blob),name,title:subject,text:body});return;}
+            if(window.nativeMeter?.supported){await window.nativeMeter.call('sharePdf',{base64:await blobBase64(blob),name,title:subject,text:body,email});showToast('Choose your Email app; the A5 PDF is attached.','success');return;}
             const file=new File([blob],name,{type:'application/pdf'});
             if(navigator.share&&(!navigator.canShare||navigator.canShare({files:[file]}))){await navigator.share({title:subject,text:body,files:[file]});return;}
-            downloadBlob(blob,name);window.location.href=`mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body+'\n\nThe PDF was downloaded; attach '+name+' to this email.')}`;
+            downloadBlob(blob,name);window.location.href=`mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body+'\n\nYour browser downloaded '+name+'. Please attach it before sending.')}`;
         }catch(e){if(e.name!=='AbortError')showToast('Receipt share failed: '+e.message,'error');}
     }
 
-    async function downloadReceiptPDF() {if(activeReceiptObject)await downloadElementPDF(document.getElementById('receipt-view'),`AMT_RECEIPT_${activeReceiptObject.id}.pdf`);}
+    async function nativeReceiptPdf(action) {
+        const name=`AMT_RECEIPT_${activeReceiptObject.id}.pdf`,blob=await receiptPdfBlob(document.getElementById('receipt-view'));
+        return window.nativeMeter.call(action,{base64:await blobBase64(blob),name,title:`${SETTINGS.appName} receipt ${activeReceiptObject.id}`});
+    }
+
+    async function downloadReceiptPDF() {
+        if(!activeReceiptObject)return;
+        try{if(window.nativeMeter?.supported){await nativeReceiptPdf('savePdf');showToast('Choose a folder to save the A5 PDF.','success');return;}await downloadElementPDF(document.getElementById('receipt-view'),`AMT_RECEIPT_${activeReceiptObject.id}.pdf`);}
+        catch(e){if(e.name!=='AbortError')showToast('PDF save failed: '+e.message,'error');}
+    }
 
     async function printReceiptDirectly() {
         if(!activeReceiptObject)return;
-        if(window.nativeMeter?.supported){await sendEmailWithAttachment();showToast('Choose Print from the system share sheet.','info');return;}
-        window.print();
+        try{if(window.nativeMeter?.supported){await nativeReceiptPdf('printPdf');return;}window.print();}
+        catch(e){showToast('Printing failed: '+e.message,'error');}
     }
 
     let trackingInterval = null;
@@ -2828,8 +2897,10 @@ let paymentSaving=false, settingsSaving=false;
                 latestPassengerPayload=payload;
                 document.getElementById('track-trip-id').textContent=payload.rideId||payload.receipt?.id||'Taxi ride';
                 if(passengerMarker&&passengerMap){passengerMarker.setLatLng([payload.lat,payload.lng]);passengerMap.setView([payload.lat,payload.lng]);}
-                document.getElementById('track-pickup-location').textContent='Address hidden';
-                document.getElementById('track-destination').textContent='Address hidden';
+                document.getElementById('track-pickup-location').textContent='Live GPS shown on map';
+                document.getElementById('track-destination').textContent=payload.route?.destination||payload.receipt?.to||'Destination not shared';
+                const stops=Array.isArray(payload.route?.stops)?payload.route.stops:(Array.isArray(payload.receipt?.stops)?payload.receipt.stops:[]),stopsRow=document.getElementById('track-stops-row');
+                stopsRow.classList.toggle('hidden',!stops.length);document.getElementById('track-route-stops').textContent=stops.map((stop,index)=>`${index+1}. ${stop}`).join(' → ');
                 document.getElementById('track-est-fare').textContent='LKR '+payload.currentFare.toFixed(2);
                 document.getElementById('track-est-distance').textContent=payload.distanceTraveled+' km';
                 document.getElementById('track-ride-mode').textContent=String(payload.mode||'ride').toUpperCase()+' Mode';

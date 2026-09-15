@@ -61,10 +61,10 @@
         #report-print-view { display:none; }
         @media print {
             @page { size:A5 portrait; margin:8mm; }
-            html, body { margin:0 !important; padding:0 !important; background:white !important; color:black !important; width:80mm !important; min-height:0 !important; display:block !important; }
+            html, body { margin:0 !important; padding:0 !important; background:white !important; color:black !important; width:148mm !important; min-height:210mm !important; display:block !important; }
             body > * { display:none !important; }
-            body > #receiptModal { display:block !important; position:static !important; padding:0 !important; margin:0 !important; background:white !important; width:80mm !important; height:auto !important; }
-            #receiptModal > div { max-height:none !important; width:80mm !important; max-width:none !important; padding:0 !important; overflow:visible !important; box-shadow:none !important; border:0 !important; display:block !important; }
+            body > #receiptModal { display:block !important; position:static !important; padding:0 !important; margin:0 !important; background:white !important; width:148mm !important; min-height:210mm !important; }
+            #receiptModal > div { max-height:none !important; width:148mm !important; max-width:none !important; padding:0 !important; overflow:visible !important; box-shadow:none !important; border:0 !important; display:block !important; }
             #receiptModal #receipt-view { width:132mm !important; max-width:132mm !important; padding:4mm !important; margin:0 auto !important; font:11px/1.4 monospace !important; }
             #receiptModal .no-print, #receiptModal button { display:none !important; }
             #receiptModal .overflow-x-auto { overflow:visible !important; border:0 !important; padding:0 !important; }
