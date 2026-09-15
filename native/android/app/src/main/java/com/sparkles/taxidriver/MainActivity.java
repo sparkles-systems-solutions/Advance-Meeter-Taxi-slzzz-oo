@@ -9,6 +9,10 @@ import android.speech.RecognizerIntent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.print.PrintAttributes;
+import android.print.PrintDocumentAdapter;
+import android.print.PrintDocumentInfo;
+import android.print.PrintManager;
 import android.webkit.*;
 import android.net.Uri;
 import android.util.Base64;
@@ -19,8 +23,7 @@ import org.json.JSONObject;
 import androidx.webkit.WebViewCompat;
 import java.util.Collections;
 import java.util.ArrayList;
-import java.io.File;
-import java.io.FileOutputStream;
+import java.io.*;
 
 public class MainActivity extends Activity {
  // Use a separate test Pages deployment before enabling the new native meter.
@@ -29,8 +32,11 @@ public class MainActivity extends Activity {
  static final int LOCATION_REQUEST=100;
  static final int FILE_CHOOSER_REQUEST=102;
  static final int VOICE_REQUEST=103;
+ static final int SAVE_PDF_REQUEST=104;
  WebView web;
  int pendingVoiceId=0;
+ int pendingSaveId=0;
+ File pendingSaveFile;
  ValueCallback<Uri[]> filePathCallback;
  boolean pageLoaded=false, hadPreciseLocation=false;
  boolean trusted(String url){if(url==null)return false;Uri u=Uri.parse(url);return "https".equals(u.getScheme())&&HOST.equals(u.getHost())&&u.getPath()!=null&&u.getPath().startsWith(PATH);}
@@ -74,6 +80,7 @@ public class MainActivity extends Activity {
  @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
   super.onActivityResult(requestCode,resultCode,data);
   if(requestCode==VOICE_REQUEST){int id=pendingVoiceId;pendingVoiceId=0;JSONObject out=new JSONObject();try{ArrayList<String> words=resultCode==RESULT_OK&&data!=null?data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS):null;if(words==null||words.isEmpty())out.put("error","No command heard");else out.put("transcript",words.get(0));}catch(Exception e){try{out.put("error",e.getMessage());}catch(Exception ignored){}}reply(id,out);return;}
+  if(requestCode==SAVE_PDF_REQUEST){int id=pendingSaveId;pendingSaveId=0;JSONObject out=new JSONObject();try{if(resultCode!=RESULT_OK||data==null||data.getData()==null)throw new Exception("PDF save cancelled");try(InputStream in=new FileInputStream(pendingSaveFile);OutputStream target=getContentResolver().openOutputStream(data.getData())){if(target==null)throw new Exception("Selected folder is unavailable");byte[] buffer=new byte[8192];int n;while((n=in.read(buffer))>0)target.write(buffer,0,n);}out.put("ok",true);}catch(Exception e){try{out.put("error",e.getMessage());}catch(Exception ignored){}}pendingSaveFile=null;reply(id,out);return;}
   if(requestCode==FILE_CHOOSER_REQUEST&&filePathCallback!=null){filePathCallback.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(resultCode,data));filePathCallback=null;}
  }
  void handle(String json){int id=0;try{
@@ -88,14 +95,22 @@ public class MainActivity extends Activity {
   else if(action.equals("loadSession")){String saved=getSharedPreferences("secure_session",MODE_PRIVATE).getString("active","");reply(id,saved.isEmpty()?new JSONObject():new JSONObject(saved));return;}
   else if(action.equals("clearSession")){getSharedPreferences("secure_session",MODE_PRIVATE).edit().remove("active").apply();reply(id,new JSONObject().put("ok",true));return;}
   else if(action.equals("sharePdf")){sharePdf(d);reply(id,new JSONObject().put("ok",true));return;}
+  else if(action.equals("savePdf")){savePdf(d,id);return;}
+  else if(action.equals("printPdf")){printPdf(d);reply(id,new JSONObject().put("ok",true));return;}
   else if(action.equals("stop")){stopService(new Intent(this,MeterService.class));MeterService.finish(this);}
   else if(!action.equals("snapshot"))throw new Exception("Unknown native action");
   reply(id,MeterService.snapshot(this));
  }catch(Exception e){JSONObject error=new JSONObject();try{error.put("error",e.getMessage());}catch(Exception ignored){}reply(id,error);}}
  void reply(int id,JSONObject result){web.evaluateJavascript("window.taxiNativeReply&&window.taxiNativeReply("+id+","+result.toString()+")",null);}
  void sharePdf(JSONObject d)throws Exception{
-  String base64=d.optString("base64"),name=d.optString("name","taxi-receipt.pdf").replaceAll("[^A-Za-z0-9._-]","_");if(base64.length()>8_000_000)throw new Exception("Receipt PDF is too large");
-  File dir=new File(getCacheDir(),"receipts");if(!dir.exists()&&!dir.mkdirs())throw new Exception("Cannot prepare receipt");File file=new File(dir,name);try(FileOutputStream out=new FileOutputStream(file)){out.write(Base64.decode(base64,Base64.DEFAULT));}
-  Uri uri=FileProvider.getUriForFile(this,getPackageName()+".fileprovider",file);Intent share=new Intent(Intent.ACTION_SEND);share.setType("application/pdf");share.putExtra(Intent.EXTRA_STREAM,uri);share.putExtra(Intent.EXTRA_SUBJECT,d.optString("title"));share.putExtra(Intent.EXTRA_TEXT,d.optString("text"));share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivity(Intent.createChooser(share,"Share receipt PDF"));
+  File file=pdfFile(d);Uri uri=FileProvider.getUriForFile(this,getPackageName()+".fileprovider",file);Intent share=new Intent(Intent.ACTION_SEND);share.setType("application/pdf");share.putExtra(Intent.EXTRA_STREAM,uri);share.putExtra(Intent.EXTRA_SUBJECT,d.optString("title"));share.putExtra(Intent.EXTRA_TEXT,d.optString("text"));String email=d.optString("email");if(!email.isEmpty())share.putExtra(Intent.EXTRA_EMAIL,new String[]{email});share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivity(Intent.createChooser(share,"Email or share receipt PDF"));
+ }
+ File pdfFile(JSONObject d)throws Exception{String base64=d.optString("base64"),name=d.optString("name","taxi-receipt.pdf").replaceAll("[^A-Za-z0-9._-]","_");if(base64.length()>8_000_000)throw new Exception("Receipt PDF is too large");File dir=new File(getCacheDir(),"receipts");if(!dir.exists()&&!dir.mkdirs())throw new Exception("Cannot prepare receipt");File file=new File(dir,name);try(FileOutputStream out=new FileOutputStream(file)){out.write(Base64.decode(base64,Base64.DEFAULT));}return file;}
+ void savePdf(JSONObject d,int id)throws Exception{pendingSaveFile=pdfFile(d);pendingSaveId=id;Intent save=new Intent(Intent.ACTION_CREATE_DOCUMENT);save.addCategory(Intent.CATEGORY_OPENABLE);save.setType("application/pdf");save.putExtra(Intent.EXTRA_TITLE,pendingSaveFile.getName());startActivityForResult(save,SAVE_PDF_REQUEST);}
+ void printPdf(JSONObject d)throws Exception{File file=pdfFile(d);PrintManager manager=(PrintManager)getSystemService(PRINT_SERVICE);PrintAttributes attributes=new PrintAttributes.Builder().setMediaSize(PrintAttributes.MediaSize.ISO_A5).setColorMode(PrintAttributes.COLOR_MODE_COLOR).build();manager.print(file.getName(),new PdfPrintAdapter(file),attributes);}
+ static class PdfPrintAdapter extends PrintDocumentAdapter{
+  final File file;PdfPrintAdapter(File file){this.file=file;}
+  @Override public void onLayout(PrintAttributes oldAttributes,PrintAttributes newAttributes,android.os.CancellationSignal cancellationSignal,LayoutResultCallback callback,Bundle extras){if(cancellationSignal.isCanceled()){callback.onLayoutCancelled();return;}callback.onLayoutFinished(new PrintDocumentInfo.Builder(file.getName()).setContentType(PrintDocumentInfo.CONTENT_TYPE_DOCUMENT).setPageCount(1).build(),!newAttributes.equals(oldAttributes));}
+  @Override public void onWrite(android.print.PageRange[] pages,android.os.ParcelFileDescriptor destination,android.os.CancellationSignal cancellationSignal,WriteResultCallback callback){try(InputStream in=new FileInputStream(file);OutputStream out=new FileOutputStream(destination.getFileDescriptor())){byte[] buffer=new byte[8192];int n;while((n=in.read(buffer))>0){if(cancellationSignal.isCanceled()){callback.onWriteCancelled();return;}out.write(buffer,0,n);}callback.onWriteFinished(new android.print.PageRange[]{android.print.PageRange.ALL_PAGES});}catch(Exception e){callback.onWriteFailed(e.getMessage());}}
  }
 }

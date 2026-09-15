@@ -89,6 +89,7 @@ export default {
    let rideLinksReady=false;
    async function ensureRideLinks(){if(rideLinksReady)return;await q('CREATE TABLE IF NOT EXISTS ride_links(token_hash TEXT PRIMARY KEY,user_id INTEGER NOT NULL REFERENCES users(id),ride_id TEXT NOT NULL,expires INTEGER NOT NULL,payload TEXT NOT NULL,UNIQUE(user_id,ride_id))').run();rideLinksReady=true;}
    const publicReceipt=(ride,settings={})=>({id:ride.id,time:ride.time,startTime:ride.startTime,km:ride.km,fare:ride.fare,from:String(ride.from||'').slice(0,500),to:String(ride.to||'').slice(0,500),wait:ride.wait||0,disc:ride.disc||0,nightUsed:!!ride.nightUsed,mode:String(ride.mode||'').slice(0,40),stops:Array.isArray(ride.stops)?ride.stops.slice(0,5).map(x=>String(x).slice(0,500)):[],payment:{method:String(ride.payment?.method||'Paid').slice(0,40)},business:{base:settings.base||0,rate:settings.rate||0,waitRate:settings.waitRate||0,nightPercent:settings.nightPercent||0,appName:settings.appName||'Taxi',receiptName:settings.receiptName||'Official Receipt',logoData:settings.logoData||'',address:settings.address||'',businessMobile:settings.businessMobile||'',email:settings.email||'',website:settings.website||'',receiptFooter:settings.receiptFooter||'',language:settings.language||'bi'}});
+   const safeRoute=route=>route&&typeof route==='object'?{destination:String(route.destination||'').slice(0,300),stops:Array.isArray(route.stops)?route.stops.slice(0,5).map(x=>String(x).slice(0,300)):[],estimatedRemainingKm:Number.isFinite(route.estimatedRemainingKm)?Math.max(0,route.estimatedRemainingKm):null,revision:Math.max(0,Math.floor(Number(route.revision)||0))}:undefined;
    async function throttle(scope,identity,max) {
     const key=digest(scope+':'+identity);
     const r=await q(`INSERT INTO attempts(key,n,reset) VALUES(?,1,?) ON CONFLICT(key) DO UPDATE SET n=CASE WHEN reset<=? THEN 1 ELSE n+1 END, reset=CASE WHEN reset<=? THEN excluded.reset ELSE reset END RETURNING n`,key,now+900000,now,now).first();
@@ -201,7 +202,7 @@ export default {
     const p=await jsonBody(request,8192);
     if(!p||!Number.isFinite(p.lat)||!Number.isFinite(p.lng)||Math.abs(p.lat)>90||Math.abs(p.lng)>180||!Number.isFinite(p.currentFare)||p.currentFare<0||!['active','completed'].includes(p.status))fail(422,'Invalid tracking update');
     const prior=JSON.parse(owned.payload);if(prior.status==='completed'&&p.status!=='completed')fail(409,'Ride tracking is completed');
-    const safe={id:shareMatch[1],rideId:owned.ride_id,lat:p.lat,lng:p.lng,currentFare:p.currentFare,distanceTraveled:String(p.distanceTraveled).slice(0,20),status:p.status,mode:String(p.mode||'').slice(0,20),timestamp:now};
+    const safe={id:shareMatch[1],rideId:owned.ride_id,lat:p.lat,lng:p.lng,currentFare:p.currentFare,distanceTraveled:String(p.distanceTraveled).slice(0,20),status:p.status,mode:String(p.mode||'').slice(0,20),timestamp:now,route:safeRoute(p.route)||prior.route};
     let expires=owned.expires;
     if(p.status==='completed'&&typeof p.receiptId==='string'){
      const state=await q('SELECT data FROM states WHERE user_id=?',user.id).first(),stored=JSON.parse(state.data),ride=JSON.parse(stored.rides||'[]').find(r=>r.id===p.receiptId);

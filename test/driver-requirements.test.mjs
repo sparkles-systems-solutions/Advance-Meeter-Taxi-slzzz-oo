@@ -37,3 +37,9 @@ test('Distance reliability shows estimates, variance and recovered GPS gaps',()=
  for(const id of ['gps-quality-value','estimated-distance-value','estimated-fare-value','distance-variance-value','recovered-distance-value','distance-warning'])assert.match(html,new RegExp('id="'+id+'"'));
  for(const field of ['estimatedKm','estimatedFare','recoveredKm','gpsGaps','distanceVarianceKm'])assert.match(js,new RegExp(field+':'));
 });
+test('Full route manager and A5 receipt actions remain available on mobile',()=>{
+ const js=readFileSync(new URL('../assets/app.js',import.meta.url),'utf8'),css=readFileSync(new URL('../assets/app.css',import.meta.url),'utf8'),html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
+ for(const name of ['openRouteManager','addRouteStop','removeRouteStop','moveRouteStop','saveRouteManager','roadRouteThrough'])assert.match(js,new RegExp('function '+name));
+ for(const id of ['route-manager-modal','route-stops-list','route-final-destination','customer-email'])assert.match(html,new RegExp('id="'+id+'"'));
+ assert.match(css,/@page \{ size:A5 portrait/);assert.match(js,/nativeReceiptPdf\('savePdf'\)/);assert.match(js,/nativeReceiptPdf\('printPdf'\)/);
+});

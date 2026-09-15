@@ -20,6 +20,8 @@ targets:
         INFOPLIST_KEY_UIBackgroundModes: location
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         SWIFT_VERSION: '5.0'
+        MARKETING_VERSION: '0.6.0'
+        CURRENT_PROJECT_VERSION: '7'
     info:
       path: GeneratedInfo.plist
       properties:

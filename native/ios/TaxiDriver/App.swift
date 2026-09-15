@@ -4,6 +4,7 @@ import CoreLocation
 import Security
 import Speech
 import AVFoundation
+import MessageUI
 
 @main class AppDelegate: UIResponder, UIApplicationDelegate {
  var window: UIWindow?
@@ -12,7 +13,7 @@ import AVFoundation
  }
 }
 
-final class DriverController: UIViewController, WKScriptMessageHandler, WKNavigationDelegate {
+final class DriverController: UIViewController, WKScriptMessageHandler, WKNavigationDelegate, MFMailComposeViewControllerDelegate {
  let meter=RideMeter();var web:WKWebView!;let audioEngine=AVAudioEngine();var speechTask:SFSpeechRecognitionTask?
  let host="sparkles-systems-solutions.github.io", path="/Advance-Meeter-Taxi-slzzz-oo/driver-test/"
  func trusted(_ url:URL?) -> Bool {url?.scheme == "https" && url?.host == host && (url?.path.hasPrefix(path) ?? false)}
@@ -36,6 +37,8 @@ final class DriverController: UIViewController, WKScriptMessageHandler, WKNaviga
     case "stop":meter.stop();result=meter.state
     case "snapshot":result=meter.state
     case "sharePdf":try sharePdf(d);result=["ok":true]
+    case "savePdf":try savePdf(d);result=["ok":true]
+    case "printPdf":try printPdf(d);result=["ok":true]
     case "voice":startVoice(id:id,language:(d["language"] as? String) ?? "en-US");return
     case "saveSession":try saveSession(d);result=["ok":true]
     case "loadSession":result=loadSession()
@@ -74,10 +77,14 @@ final class DriverController: UIViewController, WKScriptMessageHandler, WKNaviga
  }
  func clearSession(){let query:[String:Any]=[kSecClass as String:kSecClassGenericPassword,kSecAttrService as String:"com.sparkles.taxidriver.session",kSecAttrAccount as String:"active"];SecItemDelete(query as CFDictionary)}
  func sharePdf(_ d:[String:Any])throws{
-  guard let encoded=d["base64"] as? String,encoded.count<8_000_000,let data=Data(base64Encoded:encoded) else{throw NSError(domain:"Invalid receipt PDF",code:1)}
-  let raw=(d["name"] as? String) ?? "taxi-receipt.pdf",name=raw.replacingOccurrences(of:"[^A-Za-z0-9._-]",with:"_",options:.regularExpression),url=FileManager.default.temporaryDirectory.appendingPathComponent(name);try data.write(to:url,options:.atomic)
-  let text=(d["text"] as? String) ?? "Taxi receipt",sheet=UIActivityViewController(activityItems:[text,url],applicationActivities:nil);if let pop=sheet.popoverPresentationController{pop.sourceView=view;pop.sourceRect=CGRect(x:view.bounds.midX,y:view.bounds.midY,width:1,height:1)};present(sheet,animated:true)
+  let file=try pdfFile(d),text=(d["text"] as? String) ?? "Taxi receipt",subject=(d["title"] as? String) ?? "Taxi receipt"
+  if MFMailComposeViewController.canSendMail(){let mail=MFMailComposeViewController();mail.mailComposeDelegate=self;mail.setSubject(subject);mail.setMessageBody(text,isHTML:false);if let email=d["email"] as? String,!email.isEmpty{mail.setToRecipients([email])};mail.addAttachmentData(file.data,mimeType:"application/pdf",fileName:file.url.lastPathComponent);present(mail,animated:true);return}
+  let sheet=UIActivityViewController(activityItems:[text,file.url],applicationActivities:nil);if let pop=sheet.popoverPresentationController{pop.sourceView=view;pop.sourceRect=CGRect(x:view.bounds.midX,y:view.bounds.midY,width:1,height:1)};present(sheet,animated:true)
  }
+ func pdfFile(_ d:[String:Any])throws->(url:URL,data:Data){guard let encoded=d["base64"] as? String,encoded.count<8_000_000,let data=Data(base64Encoded:encoded) else{throw NSError(domain:"Invalid receipt PDF",code:1)};let raw=(d["name"] as? String) ?? "taxi-receipt.pdf",name=raw.replacingOccurrences(of:"[^A-Za-z0-9._-]",with:"_",options:.regularExpression),url=FileManager.default.temporaryDirectory.appendingPathComponent(name);try data.write(to:url,options:.atomic);return(url,data)}
+ func savePdf(_ d:[String:Any])throws{let file=try pdfFile(d),picker=UIDocumentPickerViewController(forExporting:[file.url],asCopy:true);present(picker,animated:true)}
+ func printPdf(_ d:[String:Any])throws{let file=try pdfFile(d),printer=UIPrintInteractionController.shared;printer.printingItem=file.url;printer.printInfo=UIPrintInfo(dictionary:nil);printer.printInfo?.jobName=file.url.lastPathComponent;printer.printInfo?.outputType = .general;printer.present(animated:true)}
+ func mailComposeController(_ controller:MFMailComposeViewController,didFinishWith result:MFMailComposeResult,error:Error?){controller.dismiss(animated:true)}
 }
 
 final class RideMeter:NSObject,CLLocationManagerDelegate {
@@ -129,7 +136,7 @@ final class RideMeter:NSObject,CLLocationManagerDelegate {
   let km=(state["metered"] as? Bool == true ? n(state,"meters"):n(config,"manualMeters"))/1000
   var fare=(n(config,"manualFare")>0 ? n(config,"manualFare"):n(rates,"base")+max(0,km-1)*n(rates,"rate"))+n(config,"wait")*n(rates,"waitRate")-n(config,"discount")
   if config["night"] as? Bool == true {fare *= 1+n(rates,"nightPercent")/100}
-  let payload:[String:Any]=["lat":lat,"lng":lng,"currentFare":max(0,fare.rounded()),"distanceTraveled":String(format:"%.2f",km),"status":"active","mode":config["mode"] ?? ""]
+  var payload:[String:Any]=["lat":lat,"lng":lng,"currentFare":max(0,fare.rounded()),"distanceTraveled":String(format:"%.2f",km),"status":"active","mode":config["mode"] ?? ""];if let route=config["route"] as? [String:Any]{payload["route"]=route}
   var request=URLRequest(url:URL(string:"https://odd-sun-eecf.dilshan7878787.workers.dev/api/track/\(share)")!);request.httpMethod="PUT";request.timeoutInterval=10;request.setValue("Bearer \(token)",forHTTPHeaderField:"Authorization");request.setValue("application/json",forHTTPHeaderField:"Content-Type");request.httpBody=try? JSONSerialization.data(withJSONObject:payload)
   sending=true;lastSent=Date();URLSession.shared.dataTask(with:request){_,response,error in DispatchQueue.main.async{self.sending=false;self.state["telemetryStatus"]=(response as? HTTPURLResponse)?.statusCode ?? 0}}.resume()
  }

@@ -13,3 +13,8 @@ test('Native meters recover background GPS gaps with validated road distance',()
  for(const source of [meter,ios]){assert.match(source,/router\.project-osrm\.org/);assert.match(source,/recoveredMeters/);assert.match(source,/gapCount/);}
  assert.match(meter,/START_STICKY/);assert.match(ios,/allowsBackgroundLocationUpdates=true/);
 });
+test('Android and iPhone provide native A5 PDF save, email and print actions',()=>{
+ for(const action of ['sharePdf','savePdf','printPdf']){assert.match(android,new RegExp(action));assert.match(ios,new RegExp(action));}
+ assert.match(android,/ACTION_CREATE_DOCUMENT/);assert.match(android,/PrintAttributes\.MediaSize\.ISO_A5/);assert.match(android,/EXTRA_STREAM/);
+ assert.match(ios,/MFMailComposeViewController/);assert.match(ios,/UIDocumentPickerViewController/);assert.match(ios,/UIPrintInteractionController/);
+});

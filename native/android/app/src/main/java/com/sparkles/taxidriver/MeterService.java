@@ -75,7 +75,7 @@ public class MeterService extends Service implements LocationListener {
    JSONObject rates=c.getJSONObject("rates");double km=(s.optBoolean("metered")?s.optDouble("meters"):c.optDouble("manualMeters"))/1000;
    double manual=c.optDouble("manualFare"),fare=(manual>0?manual:rates.getDouble("base")+Math.max(0,km-1)*rates.getDouble("rate"))+c.optDouble("wait")*rates.getDouble("waitRate")-c.optDouble("discount");
    if(c.optBoolean("night"))fare*=1+rates.getDouble("nightPercent")/100;
-   JSONObject data=new JSONObject().put("lat",s.getDouble("lat")).put("lng",s.getDouble("lng")).put("currentFare",Math.max(0,Math.round(fare))).put("distanceTraveled",String.format(java.util.Locale.US,"%.2f",km)).put("status","active").put("mode",c.optString("mode"));
+   JSONObject data=new JSONObject().put("lat",s.getDouble("lat")).put("lng",s.getDouble("lng")).put("currentFare",Math.max(0,Math.round(fare))).put("distanceTraveled",String.format(java.util.Locale.US,"%.2f",km)).put("status","active").put("mode",c.optString("mode"));if(c.optJSONObject("route")!=null)data.put("route",c.getJSONObject("route"));
    HttpURLConnection conn=(HttpURLConnection)new URL("https://odd-sun-eecf.dilshan7878787.workers.dev/api/track/"+share).openConnection();
    conn.setConnectTimeout(10000);conn.setReadTimeout(10000);conn.setInstanceFollowRedirects(false);conn.setRequestMethod("PUT");conn.setRequestProperty("Authorization","Bearer "+token);conn.setRequestProperty("Content-Type","application/json");conn.setDoOutput(true);
    try(var out=conn.getOutputStream()){out.write(data.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));}int status=conn.getResponseCode();conn.disconnect();

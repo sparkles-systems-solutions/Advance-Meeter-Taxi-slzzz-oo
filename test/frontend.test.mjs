@@ -63,6 +63,15 @@ test('Frontend, session adapter and database integration',async t=>{
   assert.equal(run('totalMeters'),1500);assert.equal(run('gpsGapCount'),1);assert.equal(run('recoveredMeters'),1500);
   ctx.fetch=realFetch;run("estimatedDistanceMeters=0;estimatedDurationSeconds=0;estimateBaselineMeters=0;recoveredMeters=0;gpsGapCount=0;totalMeters=0");
  });
+ await t.test('Full Route Manager adds, reorders and navigates through multiple stops',async()=>{
+  const realFetch=ctx.fetch;ctx.fetch=async url=>String(url).includes('nominatim')?{ok:true,json:async()=>[{lat:'6.92',lon:'79.82'}]}:String(url).includes('router.project-osrm.org')?{ok:true,json:async()=>({routes:[{distance:6200,duration:1200}]})}:realFetch(url);
+  run("currentLat=6.9;currentLng=79.8;currentDestinationAddress='';routeStops=[];routeStopPoints={};openRouteManager()");
+  els['route-new-stop'].value='Stop One';run('addRouteStop()');els['route-new-stop'].value='Stop Two';run('addRouteStop()');run('moveRouteStop(1,-1)');
+  assert.deepEqual(Array.from(run('routeStops')),['Stop Two','Stop One']);els['route-final-destination'].value='Final Place';await run('saveRouteManager()');
+  assert.equal(run('estimatedDistanceMeters'),6200);assert.match(els['route-summary'].textContent,/6\.20 km/);
+  let opened;ctx.window.open=url=>{opened=new URL(url);};run('openPhoneNavigation()');assert.equal(opened.searchParams.get('waypoints'),'Stop Two|Stop One');assert.equal(opened.searchParams.get('destination'),'Final Place');
+  ctx.fetch=realFetch;run("routeStops=[];routeStopPoints={};currentDestinationAddress='';selectedDestinationPoint=null;estimatedDistanceMeters=0");
+ });
  await t.test('All five ride modes and Settings submenus remain callable',()=>{
   for(const mode of ['auto','gps','manual','delivery','schedule'])run(`setMode('${mode}')`);
   for(const action of ['openLogin','openAppSettings','openFuelLogModal','openRepairLogModal','openReportsMenu','openDriverApp','openDatabaseBackupModal','openSystemLogModal'])run(action+'()');
