@@ -203,9 +203,18 @@ let paymentSaving=false, settingsSaving=false;
     let recoveredMeters=0, gpsGapCount=0, gpsQualityState='waiting', gapRecoveryBusy=false;
     let SETTINGS = { base: 100, rate: 80, waitRate: 5, nightPercent: 10, deliveryTariff:{base:100,rate:80,waitRate:5,nightPercent:10}, scheduleTariff:{base:100,rate:80,waitRate:5,nightPercent:10}, appName: "ADVANCE MEETER TAXI", receiptName: "AMT OFFICIAL RECEIPT", logoData: "", address: "", businessMobile: "", email: "", website: "", receiptFooter: "Thank you for riding with us!", language: "bi", linkDays: 30 };
     let currentReportType = "daily";
-    let passengerMap = null, passengerMarker = null;
+    const LIVE_TRACKING_POLL_MS = 5000;
+    const LIVE_TRACKING_ANIMATION_MS = 4200;
+    let passengerMap = null, passengerMarker = null, passengerTrailLine = null;
+    let passengerTrail = [], passengerAnimationFrame = null, passengerHasFix = false;
     let latestPassengerPayload = null;
     let driverPopupMap = null, driverPopupMarker = null;
+    function addFreeMapTiles(map) {
+        return L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+    }
     function applyLanguage() {
         const language=SETTINGS.language==='en'?'en':'bi';
         document.documentElement.lang=language==='en'?'en':'si';
@@ -1060,9 +1069,7 @@ let paymentSaving=false, settingsSaving=false;
             try {
                 if (driverPopupMap) { driverPopupMap.remove(); }
                 driverPopupMap = L.map('driver-popup-map-canvas', { zoomControl: false }).setView([defaultLat, defaultLng], 15);
-                L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-                    maxZoom: 19
-                }).addTo(driverPopupMap);
+                addFreeMapTiles(driverPopupMap);
                 
                 driverPopupMarker = L.marker([defaultLat, defaultLng], {
                     icon: L.divIcon({
@@ -1539,9 +1546,7 @@ let paymentSaving=false, settingsSaving=false;
         try {
             if (mapObj) { mapObj.remove(); }
             mapObj = L.map('map', { zoomControl: true }).setView([defaultLat, defaultLng], 14);
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-                maxZoom: 19
-            }).addTo(mapObj);
+            addFreeMapTiles(mapObj);
             
             mapMarker = L.marker([defaultLat, defaultLng], { draggable: true }).addTo(mapObj);
             
@@ -2800,7 +2805,7 @@ let paymentSaving=false, settingsSaving=false;
             if (sTime && currentTrackingId) {
                 broadcastOdometerTelemetry();
             }
-        }, 15000); 
+        }, LIVE_TRACKING_POLL_MS);
     }
     
     function stopTrackingUpdates() {
@@ -2869,9 +2874,7 @@ let paymentSaving=false, settingsSaving=false;
     function bootstrapPassengerTrackerMap() {
         try {
             passengerMap = L.map('tracking-map-canvas', { zoomControl: false }).setView([6.9271, 79.8612], 14);
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-                maxZoom: 19
-            }).addTo(passengerMap);
+            addFreeMapTiles(passengerMap);
             
             passengerMarker = L.marker([6.9271, 79.8612], {
                 icon: L.divIcon({
@@ -2881,9 +2884,36 @@ let paymentSaving=false, settingsSaving=false;
                     iconAnchor: [20, 20]
                 })
             }).addTo(passengerMap);
+            passengerTrailLine = L.polyline([], { color: '#2563eb', weight: 5, opacity: 0.8 }).addTo(passengerMap);
         } catch(e) {
             console.error('Passenger Map Initialization failed: ', e);
         }
+    }
+
+    function movePassengerMarkerSmooth(lat, lng) {
+        lat=Number(lat);lng=Number(lng);
+        if(!passengerMarker||!passengerMap||!Number.isFinite(lat)||!Number.isFinite(lng)||Math.abs(lat)>90||Math.abs(lng)>180)return;
+        const target=L.latLng(lat,lng);
+        if(!passengerHasFix){
+            passengerHasFix=true;passengerMarker.setLatLng(target);passengerMap.setView(target,16);
+            passengerTrail=[target];if(passengerTrailLine)passengerTrailLine.setLatLngs(passengerTrail);return;
+        }
+        const previousPoint=passengerTrail.at(-1);
+        if(!previousPoint||previousPoint.distanceTo(target)>=2){
+            passengerTrail.push(target);if(passengerTrail.length>240)passengerTrail.shift();
+            if(passengerTrailLine)passengerTrailLine.setLatLngs(passengerTrail);
+        }
+        const start=passengerMarker.getLatLng(),started=performance.now();
+        if(passengerAnimationFrame)cancelAnimationFrame(passengerAnimationFrame);
+        const animate=now=>{
+            const progress=Math.min(1,(now-started)/LIVE_TRACKING_ANIMATION_MS);
+            const eased=1-Math.pow(1-progress,3);
+            const point=L.latLng(start.lat+(target.lat-start.lat)*eased,start.lng+(target.lng-start.lng)*eased);
+            passengerMarker.setLatLng(point);
+            if(!passengerMap.getBounds().pad(-0.22).contains(point))passengerMap.panTo(point,{animate:true,duration:0.8});
+            if(progress<1)passengerAnimationFrame=requestAnimationFrame(animate);else passengerAnimationFrame=null;
+        };
+        passengerAnimationFrame=requestAnimationFrame(animate);
     }
     
     function listenToTelemetryStream(trackingId) {
@@ -2896,7 +2926,7 @@ let paymentSaving=false, settingsSaving=false;
                 if(payload.status==='waiting'){document.getElementById('track-status').textContent='Waiting for driver GPS';return;}
                 latestPassengerPayload=payload;
                 document.getElementById('track-trip-id').textContent=payload.rideId||payload.receipt?.id||'Taxi ride';
-                if(passengerMarker&&passengerMap){passengerMarker.setLatLng([payload.lat,payload.lng]);passengerMap.setView([payload.lat,payload.lng]);}
+                movePassengerMarkerSmooth(payload.lat,payload.lng);
                 document.getElementById('track-pickup-location').textContent='Live GPS shown on map';
                 document.getElementById('track-destination').textContent=payload.route?.destination||payload.receipt?.to||'Destination not shared';
                 const stops=Array.isArray(payload.route?.stops)?payload.route.stops:(Array.isArray(payload.receipt?.stops)?payload.receipt.stops:[]),stopsRow=document.getElementById('track-stops-row');
@@ -2909,7 +2939,7 @@ let paymentSaving=false, settingsSaving=false;
                 if(payload.status==='completed'&&payload.receipt){stopped=true;document.getElementById('passenger-pdf-btn').classList.remove('hidden');const view=document.getElementById('passenger-receipt-view');view.classList.remove('hidden');const business=payload.receipt.business||{};view.innerHTML=getPerfectReceiptTemplateHTML({...payload.receipt,tariff:{...SETTINGS,...business},mobile:''},false,'passenger-receipt-qr');setTimeout(()=>{const q=document.getElementById('passenger-receipt-qr');if(q&&typeof QRCode!=='undefined')new QRCode(q,{text:location.href,width:76,height:76});},50);}
                 else if(payload.status==='completed'){document.getElementById('track-status').textContent='Payment is being finalized';}
             } catch(e) {document.getElementById('track-status').textContent=e.message;if(e.status===404)stopped=true;}
-            finally {if(!stopped)setTimeout(poll,15000);}
+            finally {if(!stopped)setTimeout(poll,LIVE_TRACKING_POLL_MS);}
         }
         poll();
     }
