@@ -50,6 +50,19 @@ test('Frontend, session adapter and database integration',async t=>{
   run("setMode('schedule')");assert.equal(run('calcFare()'),420);assert.equal(els['booking-accordion'].classList.contains('open'),true);
   run("setMode('auto')");assert.equal(els['booking-accordion'].classList.contains('open'),false);run('totalMeters=0');
  });
+ await t.test('Road estimate, fare comparison and GPS gap recovery protect billable distance',async()=>{
+  const realFetch=ctx.fetch;
+  ctx.fetch=async url=>{
+   if(String(url).includes('nominatim'))return {ok:true,json:async()=>[{lat:'6.91',lon:'79.81'}]};
+   if(String(url).includes('router.project-osrm.org'))return {ok:true,json:async()=>({routes:[{distance:1500,duration:420}]})};
+   return realFetch(url);
+  };
+  run("currentMode='auto';currentLat=6.9;currentLng=79.8;currentDestinationAddress='QA destination';selectedDestinationPoint=null;totalMeters=0");
+  assert.equal(await run('refreshRouteEstimate(true)'),true);assert.equal(run('estimatedDistanceMeters'),1500);assert.equal(els['estimated-distance-value'].textContent,'1.50 km');
+  await run("recoverGapDistance({lat:6.9,lng:79.8},{lat:6.91,lng:79.8},120000)");
+  assert.equal(run('totalMeters'),1500);assert.equal(run('gpsGapCount'),1);assert.equal(run('recoveredMeters'),1500);
+  ctx.fetch=realFetch;run("estimatedDistanceMeters=0;estimatedDurationSeconds=0;estimateBaselineMeters=0;recoveredMeters=0;gpsGapCount=0;totalMeters=0");
+ });
  await t.test('All five ride modes and Settings submenus remain callable',()=>{
   for(const mode of ['auto','gps','manual','delivery','schedule'])run(`setMode('${mode}')`);
   for(const action of ['openLogin','openAppSettings','openFuelLogModal','openRepairLogModal','openReportsMenu','openDriverApp','openDatabaseBackupModal','openSystemLogModal'])run(action+'()');

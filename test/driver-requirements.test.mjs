@@ -31,3 +31,9 @@ test('Finance uses a bar chart, reports are readable, and route changes persist'
  const js=readFileSync(new URL('../assets/app.js',import.meta.url),'utf8'),css=readFileSync(new URL('../assets/app.css',import.meta.url),'utf8'),html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
  assert.match(js,/type: 'bar'/);assert.match(css,/\.report-row[^\n]*font-size:12px/);assert.match(js,/routeStops/);assert.match(html,/Route \/ Stop/);
 });
+test('Distance reliability shows estimates, variance and recovered GPS gaps',()=>{
+ const js=readFileSync(new URL('../assets/app.js',import.meta.url),'utf8'),html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
+ for(const name of ['roadRoute','refreshRouteEstimate','recoverGapDistance','updateReliabilityPanel'])assert.match(js,new RegExp('function '+name));
+ for(const id of ['gps-quality-value','estimated-distance-value','estimated-fare-value','distance-variance-value','recovered-distance-value','distance-warning'])assert.match(html,new RegExp('id="'+id+'"'));
+ for(const field of ['estimatedKm','estimatedFare','recoveredKm','gpsGaps','distanceVarianceKm'])assert.match(js,new RegExp(field+':'));
+});

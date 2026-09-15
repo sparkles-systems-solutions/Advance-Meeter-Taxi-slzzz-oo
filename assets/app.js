@@ -199,6 +199,8 @@ let paymentSaving=false, settingsSaving=false;
     // ========== STREAMING_CHUNK: Core State Initializations & Expanded Modals ==========
     let sTime = null, watchId = null, totalMeters = 0, lastLat = null, lastLon = null, currentLat = null, currentLng = null, currentRID = "", nightActive = false, gpsReady = false, currentMode = "auto", pendingRideData = null, selectedMethod = "cash", currentLocationAddress = "", currentLocationLat = null, currentLocationLon = null, startLocationAddress = "", currentDestinationAddress = "", mapObj = null, mapMarker = null, mapPickerField = null, currentTrackingId = null;
     let deliveryPickupName="", deliveryPickupPhone="", deliveryDeliveryName="", deliveryDeliveryPhone="", routeStops=[];
+    let selectedPickupPoint=null, selectedDestinationPoint=null, estimatedDistanceMeters=0, estimatedDurationSeconds=0, estimateBaselineMeters=0;
+    let recoveredMeters=0, gpsGapCount=0, gpsQualityState='waiting', gapRecoveryBusy=false;
     let SETTINGS = { base: 100, rate: 80, waitRate: 5, nightPercent: 10, deliveryTariff:{base:100,rate:80,waitRate:5,nightPercent:10}, scheduleTariff:{base:100,rate:80,waitRate:5,nightPercent:10}, appName: "ADVANCE MEETER TAXI", receiptName: "AMT OFFICIAL RECEIPT", logoData: "", address: "", businessMobile: "", email: "", website: "", receiptFooter: "Thank you for riding with us!", language: "bi", linkDays: 30 };
     let currentReportType = "daily";
     let passengerMap = null, passengerMarker = null;
@@ -331,6 +333,8 @@ let paymentSaving=false, settingsSaving=false;
                 isRideActive: true, startTime: sTime, totalMeters, lastLat, lastLon, currentMode, nightActive, startLocationAddress, currentLocationAddress, gpsReady: true, destinationAddress: currentDestinationAddress, trackingId: currentTrackingId,
                 deliveryPickupName, deliveryPickupPhone, deliveryDeliveryName, deliveryDeliveryPhone,
                 activeBookingId, activeBookingManualFare, routeStops, sharingEnabled:document.getElementById('share-location').checked, trackingShareToken,
+                selectedPickupPoint, selectedDestinationPoint, estimatedDistanceMeters, estimatedDurationSeconds, estimateBaselineMeters,
+                recoveredMeters, gpsGapCount, gpsQualityState,
                 form: Object.fromEntries(['customer-name','mobile','wait-select','discount-input','manual-fare','start-loc','end-loc','pickup-name','pickup-phone','delivery-name','delivery-phone'].map(id => [id, document.getElementById(id).value]))
             }));
             configureNativeMeter();
@@ -390,6 +394,14 @@ let paymentSaving=false, settingsSaving=false;
             activeBookingId = state.activeBookingId || null;
             activeBookingManualFare = state.activeBookingManualFare || null;
             routeStops = Array.isArray(state.routeStops) ? state.routeStops.slice(0,5) : [];
+            selectedPickupPoint = validRoadPoint(state.selectedPickupPoint) ? state.selectedPickupPoint : null;
+            selectedDestinationPoint = validRoadPoint(state.selectedDestinationPoint) ? state.selectedDestinationPoint : null;
+            estimatedDistanceMeters = Math.max(0, Number(state.estimatedDistanceMeters) || 0);
+            estimatedDurationSeconds = Math.max(0, Number(state.estimatedDurationSeconds) || 0);
+            estimateBaselineMeters = Math.max(0, Number(state.estimateBaselineMeters) || 0);
+            recoveredMeters = Math.max(0, Number(state.recoveredMeters) || 0);
+            gpsGapCount = Math.max(0, Number(state.gpsGapCount) || 0);
+            gpsQualityState = String(state.gpsQualityState || 'restored');
             gpsReady = usesManualDistance();
             lastLat = null; lastLon = null;
             
@@ -491,8 +503,12 @@ let paymentSaving=false, settingsSaving=false;
         if (state.rideId !== sTime.toISOString()) return;
         if (!usesManualDistance() && Number.isFinite(state.meters)) totalMeters = state.meters;
         if (Number.isFinite(state.lat) && Number.isFinite(state.lng)) { currentLat=state.lat; currentLng=state.lng; }
+        currentGPSAccuracy=Math.max(0,Number(state.accuracy)||0);
+        recoveredMeters=Math.max(recoveredMeters,Number(state.recoveredMeters)||0);
+        gpsGapCount=Math.max(gpsGapCount,Number(state.gapCount)||0);
+        gpsQualityState=state.gap?'recovering':gpsQualityFromAccuracy(currentGPSAccuracy);
         const status=document.getElementById('gps-status');
-        status.textContent=state.gap?'GPS gap detected — review unmeasured distance':`Native GPS · ${Math.round(state.accuracy || 0)}m accuracy`;
+        status.textContent=state.gap?'GPS gap recovery active':`Native GPS · ${Math.round(currentGPSAccuracy)}m · ${gpsQualityLabel()}`;
         updateDisplay();saveRideState();
     }
     function configureNativeMeter() {
@@ -518,11 +534,14 @@ let paymentSaving=false, settingsSaving=false;
                 document.getElementById('gps-status').textContent = 'GPS accuracy low — distance paused';
                 return;
             }
-            document.getElementById('gps-status').textContent = `GPS ${Math.round(acc)}m`;
+            currentGPSAccuracy=acc;
+            gpsQualityState=gpsQualityFromAccuracy(acc);
+            document.getElementById('gps-status').textContent = `GPS ${Math.round(acc)}m · ${gpsQualityLabel()}`;
             currentLat = lat;
             currentLng = lon;
             
             addGPSUpdate(lat, lon, acc);
+            updateReliabilityPanel();
             
             if (acc < 200 && currentMode === 'auto') {
                 reverseGeocode(lat, lon);
@@ -530,6 +549,13 @@ let paymentSaving=false, settingsSaving=false;
             
             if (usesManualDistance()) { broadcastOdometerTelemetry(); updateDriverPopupMarker(lat,lon); return; }
             if (lastLat !== null && lastLon !== null) {
+                const elapsed=lastUpdateTime?Date.now()-lastUpdateTime:0;
+                if(elapsed>30000){
+                    const from={lat:lastLat,lng:lastLon},to={lat,lng:lon};
+                    lastLat=lat;lastLon=lon;lastUpdateTime=Date.now();
+                    recoverGapDistance(from,to,elapsed).catch(()=>{});
+                    return;
+                }
                 const validation = isValidGPSUpdate(lat, lon, acc, lastLat, lastLon);
                 
                 if (validation.valid) {
@@ -551,10 +577,7 @@ let paymentSaving=false, settingsSaving=false;
                     }
                 } else {
                     console.warn('GPS validation failed: ' + validation.reason);
-                    if (Date.now() - lastUpdateTime > 30000 && calculateDistanceMeters(lastLat,lastLon,lat,lon) > MAX_DISTANCE) {
-                        lastLat=lat; lastLon=lon; lastUpdateTime=Date.now();
-                        showToast('GPS resumed after a gap. Please review the unmeasured distance.', 'warning');
-                    }
+                    if (Date.now() - lastUpdateTime > 30000) gpsQualityState='recovering';
                 }
             } else {
                 lastLat = lat;
@@ -779,6 +802,103 @@ let paymentSaving=false, settingsSaving=false;
         return (sum / gpsAccuracyHistory.length).toFixed(1);
     }
 
+    function validRoadPoint(point) {
+        return point && Number.isFinite(Number(point.lat)) && Number.isFinite(Number(point.lng))
+            && Math.abs(Number(point.lat)) <= 90 && Math.abs(Number(point.lng)) <= 180;
+    }
+
+    function gpsQualityFromAccuracy(accuracy) {
+        if (!Number.isFinite(accuracy) || accuracy <= 0) return 'waiting';
+        if (accuracy <= 15) return 'excellent';
+        if (accuracy <= 30) return 'good';
+        if (accuracy <= MAX_ACCURACY) return 'weak';
+        return 'paused';
+    }
+
+    function gpsQualityLabel() {
+        return ({ excellent:'Excellent', good:'Good', weak:'Weak', recovering:'Recovering',
+            restored:'Restored', paused:'Paused', waiting:'Waiting' })[gpsQualityState] || 'Waiting';
+    }
+
+    function estimateFareForMeters(meters) {
+        const tariff=activeTariff(), manualFare=Math.max(0,parseFloat(document.getElementById('manual-fare').value)||0);
+        const disc=Math.max(0,parseFloat(document.getElementById('discount-input').value)||0);
+        const wait=parseInt(document.getElementById('wait-select').value)||0;
+        let total=manualFare>0
+            ? manualFare+wait*Number(tariff.waitRate)-disc
+            : Number(tariff.base)+Math.max(0,meters/1000-1)*Number(tariff.rate)+wait*Number(tariff.waitRate)-disc;
+        if(nightActive) total*=1+Number(tariff.nightPercent)/100;
+        return Math.max(0,Math.round(total));
+    }
+
+    async function geocodeRoadPoint(address) {
+        const q=String(address||'').trim();
+        if(!q) return null;
+        const res=await fetchWithTimeout(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q+', Sri Lanka')}&accept-language=en&countrycodes=lk`,{headers:{'Accept-Language':'en'}});
+        const rows=await res.json(), row=Array.isArray(rows)?rows[0]:null;
+        const point=row?{lat:Number(row.lat),lng:Number(row.lon)}:null;
+        return validRoadPoint(point)?point:null;
+    }
+
+    async function roadRoute(from,to) {
+        if(!validRoadPoint(from)||!validRoadPoint(to)) throw Error('Route points unavailable');
+        const url=`https://router.project-osrm.org/route/v1/driving/${Number(from.lng)},${Number(from.lat)};${Number(to.lng)},${Number(to.lat)}?overview=false&alternatives=false&steps=false`;
+        const res=await fetchWithTimeout(url), data=await res.json(), route=data?.routes?.[0];
+        if(!res.ok||!route||!Number.isFinite(route.distance)||route.distance<0) throw Error('Road estimate unavailable');
+        return {distance:route.distance,duration:Number(route.duration)||0};
+    }
+
+    async function refreshRouteEstimate(showFailure=false) {
+        const destination=String(currentDestinationAddress||document.getElementById('end-loc')?.value||document.getElementById('sch-end')?.value||'').trim();
+        if(!destination){estimatedDistanceMeters=0;estimatedDurationSeconds=0;updateReliabilityPanel();return false;}
+        const from=validRoadPoint(selectedPickupPoint)?selectedPickupPoint:
+            (Number.isFinite(currentLat)&&Number.isFinite(currentLng)?{lat:currentLat,lng:currentLng}:null);
+        if(!validRoadPoint(from)){if(showFailure)showToast('Wait for pickup GPS before estimating the route.','warning');return false;}
+        let to=validRoadPoint(selectedDestinationPoint)?selectedDestinationPoint:null;
+        try{
+            if(!to) to=await geocodeRoadPoint(destination);
+            if(!to) throw Error('Destination not found');
+            const route=await roadRoute(from,to);
+            selectedPickupPoint=from;selectedDestinationPoint=to;
+            estimatedDistanceMeters=route.distance;estimatedDurationSeconds=route.duration;estimateBaselineMeters=totalMeters;
+            updateReliabilityPanel();saveRideState();return true;
+        }catch(e){
+            if(showFailure)showToast('Road estimate unavailable. Actual GPS meter continues.','warning');
+            return false;
+        }
+    }
+
+    async function recoverGapDistance(from,to,elapsedMs) {
+        if(gapRecoveryBusy||!validRoadPoint(from)||!validRoadPoint(to)) return;
+        const seconds=Math.max(1,elapsedMs/1000),direct=calculateDistanceMeters(from.lat,from.lng,to.lat,to.lng);
+        if(!Number.isFinite(direct)||direct<MIN_DISTANCE||direct/seconds>55) return;
+        gapRecoveryBusy=true;gpsQualityState='recovering';gpsGapCount++;updateReliabilityPanel();
+        let recovered=direct;
+        try{
+            const route=await roadRoute(from,to), ceiling=Math.min(seconds*55,direct*4+1000);
+            if(route.distance>=direct*.9&&route.distance<=ceiling) recovered=route.distance;
+        }catch(e){}
+        totalMeters+=recovered;recoveredMeters+=recovered;gpsQualityState='restored';gapRecoveryBusy=false;
+        updateDisplay();saveRideState();
+        showToast(`GPS gap recovered: +${(recovered/1000).toFixed(2)} km`,'warning');
+    }
+
+    function updateReliabilityPanel(finalCheck=false) {
+        const q=document.getElementById('gps-quality-value'),est=document.getElementById('estimated-distance-value');
+        const ef=document.getElementById('estimated-fare-value'),rec=document.getElementById('recovered-distance-value');
+        const diff=document.getElementById('distance-variance-value'),warn=document.getElementById('distance-warning');
+        if(q){q.textContent=gpsQualityLabel();q.className=gpsQualityState==='excellent'||gpsQualityState==='good'?'text-emerald-400 font-extrabold':gpsQualityState==='weak'||gpsQualityState==='restored'?'text-amber-400 font-extrabold':'text-rose-400 font-extrabold';}
+        if(est)est.textContent=estimatedDistanceMeters>0?(estimatedDistanceMeters/1000).toFixed(2)+' km':'--';
+        if(ef)ef.textContent=estimatedDistanceMeters>0?'LKR '+estimateFareForMeters(estimatedDistanceMeters).toFixed(2):'--';
+        if(rec)rec.textContent=recoveredMeters>0?(recoveredMeters/1000).toFixed(2)+' km / '+gpsGapCount:'0.00 km / 0';
+        const variance=estimatedDistanceMeters>0?totalMeters-(estimateBaselineMeters+estimatedDistanceMeters):0;
+        if(diff)diff.textContent=estimatedDistanceMeters>0?(variance>=0?'+':'')+(variance/1000).toFixed(2)+' km':'--';
+        const limit=Math.max(2000,estimatedDistanceMeters*.25);
+        const unusual=estimatedDistanceMeters>0&&(variance>limit||(finalCheck&&Math.abs(variance)>limit));
+        if(warn){warn.hidden=!unusual;warn.textContent=variance>0?'⚠ Actual distance exceeds the road estimate. Confirm route changes/stops before payment.':'⚠ Final distance is below the estimate. Check GPS quality before payment.';}
+        return unusual;
+    }
+
     let lastKmValue = 0, lastFareValue = 0;
     function animateCounter(id) {
         let el = document.getElementById(id);
@@ -815,6 +935,7 @@ let paymentSaving=false, settingsSaving=false;
         
         let ni = document.getElementById('night-indicator');
         if (ni) ni.style.display = nightActive ? 'inline-block' : 'none';
+        updateReliabilityPanel();
     }
 
     function calcFare() {
@@ -906,6 +1027,7 @@ let paymentSaving=false, settingsSaving=false;
         configureNativeMeter();
         startTrackingUpdates();
         startRideStatusMonitoring();
+        refreshRouteEstimate(false).catch(()=>{});
         showToast("ගමන සාර්ථකව ආරම්භ විය! 🚕", 'success');
         sendNotification('Ride Started', 'Your taxi ride has started. Safe journey!');
     }
@@ -962,6 +1084,8 @@ let paymentSaving=false, settingsSaving=false;
         rideEnding = true;
         try {
         await syncNativeMeter();
+        const distanceWarning=updateReliabilityPanel(true);
+        if(distanceWarning&&!confirm('Actual distance differs significantly from the road estimate. Confirm the route and continue to payment?'))return;
         if (window.nativeMeter?.supported) await window.nativeMeter.call('stop');
         showLoading(true);
         closeDriverMapPopup();
@@ -1029,6 +1153,11 @@ let paymentSaving=false, settingsSaving=false;
             time: Date.now(),
             trackingId: currentTrackingId,
             stops: routeStops.slice(),
+            estimatedKm: estimatedDistanceMeters>0?Number((estimatedDistanceMeters/1000).toFixed(3)):null,
+            estimatedFare: estimatedDistanceMeters>0?estimateFareForMeters(estimatedDistanceMeters):null,
+            recoveredKm: Number((recoveredMeters/1000).toFixed(3)),
+            gpsGaps: gpsGapCount,
+            distanceVarianceKm: estimatedDistanceMeters>0?Number(((totalMeters-estimateBaselineMeters-estimatedDistanceMeters)/1000).toFixed(3)):null,
             trackingToken: trackingShareToken,
             finalLat: Number.isFinite(finalLat) ? finalLat : null,
             finalLng: Number.isFinite(finalLon) ? finalLon : null,
@@ -1075,6 +1204,8 @@ let paymentSaving=false, settingsSaving=false;
         stopTrackingUpdates();
         currentTrackingId = null;
         routeStops = [];
+        selectedPickupPoint=null;selectedDestinationPoint=null;estimatedDistanceMeters=0;estimatedDurationSeconds=0;
+        estimateBaselineMeters=0;recoveredMeters=0;gpsGapCount=0;gpsQualityState='waiting';gapRecoveryBusy=false;
         document.getElementById('restore-banner').classList.add('hidden');
         if(watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
         releaseWakeLock();
@@ -1485,6 +1616,12 @@ let paymentSaving=false, settingsSaving=false;
             document.getElementById('sch-end').value = address;
             currentDestinationAddress = address;
         }
+        if(mapMarker){
+            const p=mapMarker.getLatLng(),point={lat:Number(p.lat),lng:Number(p.lng)};
+            if(activeMapField==='start'||activeMapField==='sch-start')selectedPickupPoint=point;
+            else selectedDestinationPoint=point;
+        }
+        if(sTime)refreshRouteEstimate(false).catch(()=>{});
         
         closeMapModal();
         showToast("ස්ථානය සාර්ථකව තෝරා ගන්නා ලදී!", "success");
@@ -2494,11 +2631,13 @@ let paymentSaving=false, settingsSaving=false;
         if(!next||!next.trim())return;const clean=next.trim();
         if(currentDestinationAddress&&currentDestinationAddress!==clean)routeStops.push(currentDestinationAddress);
         routeStops=routeStops.filter(Boolean).slice(-5);currentDestinationAddress=clean;document.getElementById('end-loc').value=clean;
+        selectedDestinationPoint=null;estimatedDistanceMeters=0;estimatedDurationSeconds=0;
         if(usesManualDistance()&&Number(document.getElementById('manual-fare').value)>0&&confirm('Change the agreed fare for this new destination? Press Cancel to keep the current fare.')){
             const fare=prompt('Enter the new agreed fare (LKR):',document.getElementById('manual-fare').value);
             if(fare!==null&&Number.isFinite(Number(fare))&&Number(fare)>=0)document.getElementById('manual-fare').value=Number(fare);
         }
-        saveRideState();updateDisplay();showToast('Route updated. Distance already travelled was kept.','success');
+        saveRideState();updateDisplay();refreshRouteEstimate(true).catch(()=>{});
+        showToast('Route updated. Distance already travelled was kept.','success');
     }
 
     function openPhoneNavigation() {

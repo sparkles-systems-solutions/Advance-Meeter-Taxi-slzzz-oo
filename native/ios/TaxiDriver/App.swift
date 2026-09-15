@@ -81,7 +81,7 @@ final class DriverController: UIViewController, WKScriptMessageHandler, WKNaviga
 }
 
 final class RideMeter:NSObject,CLLocationManagerDelegate {
- let manager=CLLocationManager();var state:[String:Any]=[:],config:[String:Any]=[:];var previous:CLLocation?;var lastSent=Date.distantPast;var sending=false
+ let manager=CLLocationManager();var state:[String:Any]=[:],config:[String:Any]=[:];var previous:CLLocation?;var lastSent=Date.distantPast;var sending=false;var recoverySerial=0
  override init(){super.init();manager.delegate=self;manager.desiredAccuracy=kCLLocationAccuracyBestForNavigation;manager.distanceFilter=kCLDistanceFilterNone;manager.activityType = .automotiveNavigation;manager.pausesLocationUpdatesAutomatically=false;manager.allowsBackgroundLocationUpdates=true;manager.showsBackgroundLocationIndicator=true
   if let bytes=UserDefaults.standard.data(forKey:"ride"),let saved=(try? JSONSerialization.jsonObject(with:bytes)) as? [String:Any]{state=saved}
  }
@@ -99,14 +99,30 @@ final class RideMeter:NSObject,CLLocationManagerDelegate {
   guard state["active"] as? Bool == true else{return}
   for p in locations.sorted(by:{$0.timestamp < $1.timestamp}){
    guard p.horizontalAccuracy>=0,p.horizontalAccuracy<=50,abs(p.timestamp.timeIntervalSinceNow)<15 else{continue}
+   let savedLat=(state["lat"] as? NSNumber)?.doubleValue,savedLng=(state["lng"] as? NSNumber)?.doubleValue,savedTime=(state["timestamp"] as? NSNumber)?.doubleValue
    state["lat"]=p.coordinate.latitude;state["lng"]=p.coordinate.longitude;state["accuracy"]=p.horizontalAccuracy;state["timestamp"]=p.timestamp.timeIntervalSince1970*1000
+   state["quality"]=p.horizontalAccuracy<=15 ? "excellent" : p.horizontalAccuracy<=30 ? "good" : "weak"
    if let old=previous {let dt=p.timestamp.timeIntervalSince(old.timestamp),distance=p.distance(from:old)
-    if dt>30 {state["gap"]=true;previous=p}
+    if dt>30 {recoverGap(old,p,dt);previous=p}
     else if dt>=1,distance>=2,distance<=500,distance/dt<=55 {if state["metered"] as? Bool == true{state["meters"]=(state["meters"] as? Double ?? 0)+distance};previous=p}
-   }else{previous=p}
+   }else if let lat=savedLat,let lng=savedLng,let millis=savedTime {let saved=CLLocation(coordinate:CLLocationCoordinate2D(latitude:lat,longitude:lng),altitude:0,horizontalAccuracy:50,verticalAccuracy:50,timestamp:Date(timeIntervalSince1970:millis/1000)),dt=p.timestamp.timeIntervalSince(saved.timestamp);if dt>30{recoverGap(saved,p,dt)};previous=p}
+   else{previous=p}
   };save();if Date().timeIntervalSince(lastSent)>=10 {publish()}
  }
  func locationManager(_ manager:CLLocationManager,didFailWithError error:Error){state["gap"]=true;save()}
+ func recoverGap(_ from:CLLocation,_ to:CLLocation,_ seconds:Double){
+  let direct=from.distance(from:to);guard direct>=2,direct/max(1,seconds)<=55 else{return}
+  recoverySerial += 1;let serial=recoverySerial,ride=state["rideId"] as? String
+  if state["metered"] as? Bool == true {state["meters"]=(state["meters"] as? Double ?? 0)+direct}
+  state["recoveredMeters"]=(state["recoveredMeters"] as? Double ?? 0)+direct;state["gapCount"]=(state["gapCount"] as? Int ?? 0)+1;state["gap"]=true;save()
+  let coords="\(from.coordinate.longitude),\(from.coordinate.latitude);\(to.coordinate.longitude),\(to.coordinate.latitude)"
+  guard let url=URL(string:"https://router.project-osrm.org/route/v1/driving/\(coords)?overview=false&alternatives=false&steps=false") else{return}
+  URLSession.shared.dataTask(with:url){data,_,_ in
+   var extra=0.0
+   if let data=data,let root=(try? JSONSerialization.jsonObject(with:data)) as? [String:Any],let routes=root["routes"] as? [[String:Any]],let road=(routes.first?["distance"] as? NSNumber)?.doubleValue {let ceiling=min(seconds*55,direct*4+1000);if road>=direct*0.9,road<=ceiling{extra=max(0,road-direct)}}
+   DispatchQueue.main.async{guard self.recoverySerial==serial,self.state["rideId"] as? String==ride,self.state["active"] as? Bool==true else{return};if self.state["metered"] as? Bool == true{self.state["meters"]=(self.state["meters"] as? Double ?? 0)+extra};self.state["recoveredMeters"]=(self.state["recoveredMeters"] as? Double ?? 0)+extra;self.state["gap"]=false;self.save()}
+  }.resume()
+ }
  func publish(){
   guard !sending,let token=config["token"] as? String,let share=config["share"] as? String,token.range(of:"^[a-f0-9]{64}$",options:.regularExpression) != nil,share.range(of:"^[a-f0-9]{64}$",options:.regularExpression) != nil,let rates=config["rates"] as? [String:Any],let lat=state["lat"],let lng=state["lng"] else{return}
   func n(_ d:[String:Any],_ k:String)->Double{(d[k] as? NSNumber)?.doubleValue ?? 0}

@@ -5,6 +5,7 @@ import android.content.*;
 import android.location.*;
 import android.os.*;
 import org.json.JSONObject;
+import java.io.*;
 import java.net.*;
 import java.util.concurrent.*;
 
@@ -39,13 +40,35 @@ public class MeterService extends Service implements LocationListener {
  @Override public void onLocationChanged(Location p){synchronized(MeterService.class){try{
   if(!state.optBoolean("active")||!p.hasAccuracy()||p.getAccuracy()>50||p.getAccuracy()<0)return;
   if(Math.abs(System.currentTimeMillis()-p.getTime())>15000)return;
+  Location savedPrevious=null;
+  if(previous==null&&state.has("lat")&&state.has("lng")&&state.optLong("timestamp")>0){savedPrevious=new Location("saved");savedPrevious.setLatitude(state.optDouble("lat"));savedPrevious.setLongitude(state.optDouble("lng"));savedPrevious.setTime(state.optLong("timestamp"));}
   state.put("lat",p.getLatitude());state.put("lng",p.getLongitude());state.put("accuracy",p.getAccuracy());state.put("timestamp",p.getTime());
+  state.put("quality",p.getAccuracy()<=15?"excellent":p.getAccuracy()<=30?"good":"weak");
   if(previous!=null){double seconds=(p.getElapsedRealtimeNanos()-previous.getElapsedRealtimeNanos())/1e9,dist=previous.distanceTo(p);
-   if(seconds>30){state.put("gap",true);previous=p;}
+   if(seconds>30){recoverGap(this,previous,p,seconds);previous=p;}
    else if(seconds>=1&&dist>=2&&dist<=500&&dist/seconds<=55){if(state.optBoolean("metered"))state.put("meters",state.optDouble("meters")+dist);previous=p;}
-  }else previous=p;
+  }else if(savedPrevious!=null){double seconds=(p.getTime()-savedPrevious.getTime())/1000.0;if(seconds>30)recoverGap(this,savedPrevious,p,seconds);previous=p;}
+  else previous=p;
   persist(this);if(System.currentTimeMillis()-lastSent>=10000){lastSent=System.currentTimeMillis();publish(new JSONObject(state.toString()),new JSONObject(config.toString()));}
  }catch(Exception ignored){}}}
+ static void recoverGap(Context c,Location from,Location to,double seconds){
+  double direct=from.distanceTo(to);if(!Double.isFinite(direct)||direct<2||direct/Math.max(1,seconds)>55)return;
+  final String rideId=state.optString("rideId");final long recoveryId=System.currentTimeMillis();try{
+   if(state.optBoolean("metered"))state.put("meters",state.optDouble("meters")+direct);
+   state.put("recoveredMeters",state.optDouble("recoveredMeters")+direct);state.put("gapCount",state.optInt("gapCount")+1);state.put("gap",true);state.put("recoveryId",recoveryId);persist(c);
+  }catch(Exception ignored){}
+  network.execute(()->{double extra=0;try{
+   String coords=from.getLongitude()+","+from.getLatitude()+";"+to.getLongitude()+","+to.getLatitude();
+   HttpURLConnection conn=(HttpURLConnection)new URL("https://router.project-osrm.org/route/v1/driving/"+coords+"?overview=false&alternatives=false&steps=false").openConnection();
+   conn.setConnectTimeout(7000);conn.setReadTimeout(7000);conn.setRequestProperty("User-Agent","Advance-Meeter-Taxi/0.5");StringBuilder body=new StringBuilder();
+   try(BufferedReader br=new BufferedReader(new InputStreamReader(conn.getInputStream()))){String line;while((line=br.readLine())!=null)body.append(line);}conn.disconnect();
+   JSONObject route=new JSONObject(body.toString()).getJSONArray("routes").getJSONObject(0);double road=route.getDouble("distance"),ceiling=Math.min(seconds*55,direct*4+1000);
+   if(road>=direct*.9&&road<=ceiling)extra=Math.max(0,road-direct);
+  }catch(Exception ignored){}
+  synchronized(MeterService.class){try{if(rideId.equals(state.optString("rideId"))&&state.optLong("recoveryId")==recoveryId&&state.optBoolean("active")){
+   if(state.optBoolean("metered"))state.put("meters",state.optDouble("meters")+extra);state.put("recoveredMeters",state.optDouble("recoveredMeters")+extra);state.put("gap",false);persist(c);
+  }}catch(Exception ignored){}}});
+ }
  static void publish(JSONObject s,JSONObject c){
   String token=c.optString("token"),share=c.optString("share");if(!token.matches("[a-f0-9]{64}")||!share.matches("[a-f0-9]{64}"))return;
   network.execute(()->{try{

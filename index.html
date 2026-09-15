@@ -27,7 +27,7 @@
     <!-- Google Fonts for premium typography -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Share+Tech+Mono&display=swap" rel="stylesheet">
     
-    <link rel="stylesheet" href="assets/app.css?v=routing-tariffs-20260914">
+<link rel="stylesheet" href="assets/app.css?v=gps-reliability-20260915">
 </head>
 <body class="min-h-screen text-slate-100 flex items-center justify-center p-2 sm:p-4">
 
@@ -245,6 +245,21 @@
         <!-- GPS Status Bar -->
         <div id="gps-status" class="mt-3.5 bg-slate-950 border border-slate-800/80 rounded-xl py-2 px-3 text-[9px] sm:text-[10px] font-bold text-slate-400 flex items-center justify-center gap-1.5">
             <span class="w-1.5 h-1.5 rounded-full bg-slate-700 animate-pulse"></span> 📍 GPS සම්බන්ධතාවය පරීක්ෂා කරමින්...
+        </div>
+
+        <div id="distance-reliability-panel" class="mt-2.5 bg-slate-950/80 border border-slate-800 rounded-xl p-2.5 space-y-2">
+            <div class="flex items-center justify-between text-[9px] sm:text-[10px] font-bold">
+                <span class="text-slate-500 uppercase">GPS &amp; Fare Reliability</span>
+                <span id="gps-quality-value" class="text-amber-400 font-extrabold">Waiting</span>
+            </div>
+            <div class="grid grid-cols-2 gap-1.5 text-[9px] sm:text-[10px]">
+                <div class="bg-slate-900 rounded-lg p-2"><span class="text-slate-500">Estimated road</span><div id="estimated-distance-value" class="text-white font-extrabold">--</div></div>
+                <div class="bg-slate-900 rounded-lg p-2"><span class="text-slate-500">Estimated fare</span><div id="estimated-fare-value" class="text-emerald-400 font-extrabold">--</div></div>
+                <div class="bg-slate-900 rounded-lg p-2"><span class="text-slate-500">Actual vs estimate</span><div id="distance-variance-value" class="text-white font-extrabold">--</div></div>
+                <div class="bg-slate-900 rounded-lg p-2"><span class="text-slate-500">Recovered / gaps</span><div id="recovered-distance-value" class="text-blue-400 font-extrabold">0.00 km / 0</div></div>
+            </div>
+            <button class="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-[10px] font-bold transition active:scale-95" onclick="refreshRouteEstimate(true)">↻ Calculate road estimate</button>
+            <div id="distance-warning" hidden class="rounded-lg border border-amber-700/70 bg-amber-950/40 px-2 py-1.5 text-[9px] font-bold text-amber-300"></div>
         </div>
 
         <label class="block mt-3 text-xs">Customer name (optional)
@@ -1118,10 +1133,10 @@
     </div>
 </div>
 
-<script src="assets/config.js?v=routing-tariffs-20260914"></script>
-<script src="assets/native-meter.js?v=routing-tariffs-20260914"></script>
-<script src="assets/session.js?v=routing-tariffs-20260914"></script>
-<script src="assets/reports.js?v=routing-tariffs-20260914"></script>
-<script src="assets/app.js?v=routing-tariffs-20260914"></script>
+<script src="assets/config.js?v=gps-reliability-20260915"></script>
+<script src="assets/native-meter.js?v=gps-reliability-20260915"></script>
+<script src="assets/session.js?v=gps-reliability-20260915"></script>
+<script src="assets/reports.js?v=gps-reliability-20260915"></script>
+<script src="assets/app.js?v=gps-reliability-20260915"></script>
 </body>
 </html>
