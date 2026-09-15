@@ -18,3 +18,6 @@ test('Android and iPhone provide native A5 PDF save, email and print actions',()
  assert.match(android,/ACTION_CREATE_DOCUMENT/);assert.match(android,/PrintAttributes\.MediaSize\.ISO_A5/);assert.match(android,/EXTRA_STREAM/);
  assert.match(ios,/MFMailComposeViewController/);assert.match(ios,/UIDocumentPickerViewController/);assert.match(ios,/UIPrintInteractionController/);
 });
+test('Native meters publish live passenger GPS at five-second intervals',()=>{
+ assert.match(meter,/lastSent>=5000/);assert.match(ios,/timeIntervalSince\(lastSent\)>=5/);
+});

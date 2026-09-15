@@ -49,7 +49,7 @@ public class MeterService extends Service implements LocationListener {
    else if(seconds>=1&&dist>=2&&dist<=500&&dist/seconds<=55){if(state.optBoolean("metered"))state.put("meters",state.optDouble("meters")+dist);previous=p;}
   }else if(savedPrevious!=null){double seconds=(p.getTime()-savedPrevious.getTime())/1000.0;if(seconds>30)recoverGap(this,savedPrevious,p,seconds);previous=p;}
   else previous=p;
-  persist(this);if(System.currentTimeMillis()-lastSent>=10000){lastSent=System.currentTimeMillis();publish(new JSONObject(state.toString()),new JSONObject(config.toString()));}
+  persist(this);if(System.currentTimeMillis()-lastSent>=5000){lastSent=System.currentTimeMillis();publish(new JSONObject(state.toString()),new JSONObject(config.toString()));}
  }catch(Exception ignored){}}}
  static void recoverGap(Context c,Location from,Location to,double seconds){
   double direct=from.distanceTo(to);if(!Double.isFinite(direct)||direct<2||direct/Math.max(1,seconds)>55)return;

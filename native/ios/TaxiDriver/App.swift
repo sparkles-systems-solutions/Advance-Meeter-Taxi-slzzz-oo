@@ -114,7 +114,7 @@ final class RideMeter:NSObject,CLLocationManagerDelegate {
     else if dt>=1,distance>=2,distance<=500,distance/dt<=55 {if state["metered"] as? Bool == true{state["meters"]=(state["meters"] as? Double ?? 0)+distance};previous=p}
    }else if let lat=savedLat,let lng=savedLng,let millis=savedTime {let saved=CLLocation(coordinate:CLLocationCoordinate2D(latitude:lat,longitude:lng),altitude:0,horizontalAccuracy:50,verticalAccuracy:50,timestamp:Date(timeIntervalSince1970:millis/1000)),dt=p.timestamp.timeIntervalSince(saved.timestamp);if dt>30{recoverGap(saved,p,dt)};previous=p}
    else{previous=p}
-  };save();if Date().timeIntervalSince(lastSent)>=10 {publish()}
+  };save();if Date().timeIntervalSince(lastSent)>=5 {publish()}
  }
  func locationManager(_ manager:CLLocationManager,didFailWithError error:Error){state["gap"]=true;save()}
  func recoverGap(_ from:CLLocation,_ to:CLLocation,_ seconds:Double){

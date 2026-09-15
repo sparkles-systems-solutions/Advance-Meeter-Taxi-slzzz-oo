@@ -43,3 +43,9 @@ test('Full route manager and A5 receipt actions remain available on mobile',()=>
  for(const id of ['route-manager-modal','route-stops-list','route-final-destination','customer-email'])assert.match(html,new RegExp('id="'+id+'"'));
  assert.match(css,/@page \{ size:A5 portrait/);assert.match(js,/nativeReceiptPdf\('savePdf'\)/);assert.match(js,/nativeReceiptPdf\('printPdf'\)/);
 });
+test('Passenger map is key-free and animates frequent live GPS updates',()=>{
+ const js=readFileSync(new URL('../assets/app.js',import.meta.url),'utf8'),html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
+ assert.match(js,/tile\.openstreetmap\.org/);assert.doesNotMatch(js,/basemaps\.cartocdn/);
+ assert.match(js,/function movePassengerMarkerSmooth/);assert.match(js,/passengerTrailLine/);
+ assert.match(js,/LIVE_TRACKING_POLL_MS = 5000/);assert.match(html,/live-map-20260915/);
+});
