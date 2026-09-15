@@ -45,7 +45,8 @@ test('Full route manager and A5 receipt actions remain available on mobile',()=>
 });
 test('Passenger map is key-free and animates frequent live GPS updates',()=>{
  const js=readFileSync(new URL('../assets/app.js',import.meta.url),'utf8'),html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
- assert.match(js,/tile\.openstreetmap\.org/);assert.doesNotMatch(js,/basemaps\.cartocdn/);
+ assert.match(js,/tiles\.openfreemap\.org\/styles\/liberty/);assert.doesNotMatch(js,/basemaps\.cartocdn/);
+ assert.match(html,/maplibre-gl-leaflet/);assert.match(html,/strict-origin-when-cross-origin/);assert.doesNotMatch(html,/content="no-referrer"/);
  assert.match(js,/function movePassengerMarkerSmooth/);assert.match(js,/passengerTrailLine/);
- assert.match(js,/LIVE_TRACKING_POLL_MS = 5000/);assert.match(html,/live-map-20260915/);
+ assert.match(js,/LIVE_TRACKING_POLL_MS = 5000/);assert.match(html,/live-map2-20260915/);
 });

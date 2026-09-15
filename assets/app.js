@@ -210,6 +210,9 @@ let paymentSaving=false, settingsSaving=false;
     let latestPassengerPayload = null;
     let driverPopupMap = null, driverPopupMarker = null;
     function addFreeMapTiles(map) {
+        if(typeof L.maplibreGL==='function'){
+            return L.maplibreGL({style:'https://tiles.openfreemap.org/styles/liberty'}).addTo(map);
+        }
         return L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,
             attribution: '&copy; OpenStreetMap contributors'
