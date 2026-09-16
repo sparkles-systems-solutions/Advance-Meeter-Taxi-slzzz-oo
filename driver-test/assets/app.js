@@ -200,7 +200,7 @@ let paymentSaving=false, settingsSaving=false;
     }
 
     // ========== STREAMING_CHUNK: Core State Initializations & Expanded Modals ==========
-    let sTime = null, watchId = null, totalMeters = 0, lastLat = null, lastLon = null, currentLat = null, currentLng = null, currentRID = "", nightActive = false, gpsReady = false, currentMode = "auto", pendingRideData = null, selectedMethod = "cash", currentLocationAddress = "", currentLocationLat = null, currentLocationLon = null, startLocationAddress = "", currentDestinationAddress = "", mapObj = null, mapMarker = null, mapPickerField = null, currentTrackingId = null;
+    let sTime = null, watchId = null, totalMeters = 0, lastLat = null, lastLon = null, currentLat = null, currentLng = null, currentRID = "", nightActive = false, gpsReady = false, currentMode = "auto", pendingRideData = null, selectedMethod = "cash", currentLocationAddress = "", currentLocationLat = null, currentLocationLon = null, lastGeocodedLat = null, lastGeocodedLon = null, startLocationAddress = "", currentDestinationAddress = "", mapObj = null, mapMarker = null, mapPickerField = null, currentTrackingId = null;
     let deliveryPickupName="", deliveryPickupPhone="", deliveryDeliveryName="", deliveryDeliveryPhone="", routeStops=[], routeStopPoints={}, routeRevision=0, routeDraftDestinationPoint=null, routeDraftDestinationAddress='';
     let selectedPickupPoint=null, selectedDestinationPoint=null, estimatedDistanceMeters=0, estimatedDurationSeconds=0, estimateBaselineMeters=0;
     let recoveredMeters=0, gpsGapCount=0, gpsQualityState='waiting', gapRecoveryBusy=false;
@@ -605,16 +605,23 @@ let paymentSaving=false, settingsSaving=false;
     }
 
     let lastGeocodeTime = 0;
+    function isResolvedAddress(value) {
+        const address=String(value||'').trim();
+        return Boolean(address&&!/^GPS:/i.test(address)&&!/address unavailable|location unavailable/i.test(address));
+    }
+    async function lookupAddress(lat, lon) {
+        if(!Number.isFinite(lat)||!Number.isFinite(lon))return '';
+        const res=await fetchWithTimeout(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&accept-language=en&countrycodes=lk`,{headers:{'Accept-Language':'en'}});
+        const data=await res.json();
+        return String(data?.display_name||'').trim();
+    }
     async function reverseGeocode(lat, lon) {
         if (Date.now() - lastGeocodeTime < 10000) return currentLocationAddress;
         lastGeocodeTime = Date.now();
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) return "Location unavailable";
         try {
-            let res = await fetchWithTimeout(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&accept-language=en&countrycodes=lk`, {
-                headers: { "Accept-Language": "en" }
-            });
-            let data = await res.json();
-            currentLocationAddress = data.display_name || getSriLankaFallbackAddress(lat, lon);
+            currentLocationAddress = await lookupAddress(lat,lon) || getSriLankaFallbackAddress(lat, lon);
+            if(isResolvedAddress(currentLocationAddress)){lastGeocodedLat=lat;lastGeocodedLon=lon;}
             document.getElementById('current-location-address').textContent = currentLocationAddress.substring(0, 80);
             return currentLocationAddress;
         } catch(e){
@@ -622,6 +629,28 @@ let paymentSaving=false, settingsSaving=false;
             document.getElementById('current-location-address').textContent = currentLocationAddress.substring(0, 80);
             return currentLocationAddress;
         }
+    }
+
+    function selectedDropAddress() {
+        if(currentMode==='schedule')return String(currentDestinationAddress||document.getElementById('sch-end')?.value||'').trim();
+        return String(currentDestinationAddress||document.getElementById('end-loc')?.value||'').trim();
+    }
+
+    async function resolveReceiptDropAddress(lat,lon) {
+        const selected=selectedDropAddress();
+        if(currentMode!=='auto'&&selected)return selected;
+        if(Number.isFinite(lat)&&Number.isFinite(lon)){
+            try{
+                const fresh=await lookupAddress(lat,lon);
+                if(isResolvedAddress(fresh)){currentLocationAddress=fresh;lastGeocodedLat=lat;lastGeocodedLon=lon;return fresh;}
+            }catch(e){console.warn('Final address lookup failed',e);}
+            if(isResolvedAddress(currentLocationAddress)&&Number.isFinite(lastGeocodedLat)&&Number.isFinite(lastGeocodedLon)){
+                const cachedDistance=calculateDistanceMeters(lastGeocodedLat,lastGeocodedLon,lat,lon);
+                if(cachedDistance<=1500)return currentLocationAddress;
+            }
+            return getSriLankaFallbackAddress(lat,lon);
+        }
+        return selected||'Unknown Drop Location';
     }
 
     function refreshCurrentLocation() {
@@ -1125,22 +1154,7 @@ let paymentSaving=false, settingsSaving=false;
             }
         }
         
-        let finalAddress = getSriLankaFallbackAddress(finalLat, finalLon);
-        if (currentMode !== 'manual' && finalLat && finalLon) {
-            try {
-                let res = await fetchWithTimeout(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${finalLat}&lon=${finalLon}&accept-language=en&countrycodes=lk`, {
-                    headers: { "Accept-Language": "en" }
-                });
-                let data = await res.json();
-                if (data && data.display_name) {
-                    finalAddress = data.display_name;
-                }
-            } catch(err) {
-                console.log("OSM Error, resolving fallback Sri Lankan address", err);
-            }
-        }
-        
-        if (usesManualDistance()) finalAddress = currentDestinationAddress || document.getElementById('end-loc').value;
+        const finalAddress = await resolveReceiptDropAddress(finalLat,finalLon);
         let fare = calcFare(); 
         currentRID = generateReceiptID(); 
         let km = totalMeters / 1000; 
