@@ -130,8 +130,10 @@ let paymentSaving=false, settingsSaving=false;
     }
 
     // ========== Voice Command Support System ==========
+    const VOICE_CONTROL_ENABLED = false;
     let voiceActive = false, recognition = null;
     function initVoiceRecognition() {
+        if (!VOICE_CONTROL_ENABLED) return false;
         if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
             document.getElementById('voiceStatus').innerHTML = '❌ Voice engine not supported';
             return false;
@@ -166,6 +168,7 @@ let paymentSaving=false, settingsSaving=false;
     }
     
     async function toggleVoiceCommand() {
+        if (!VOICE_CONTROL_ENABLED) { showToast('Voice Control is currently disabled.', 'info'); return; }
         if(window.nativeMeter?.supported){
             const btn=document.getElementById('voiceBtn'),status=document.getElementById('voiceStatus');
             btn.disabled=true;btn.innerHTML='🎤 LISTENING...';status.textContent='Speak a command now';
@@ -422,12 +425,7 @@ let paymentSaving=false, settingsSaving=false;
             setMode(currentMode);
             startRideStatusMonitoring();
             document.getElementById('active-ride-banner').classList.remove('hidden');
-            let nightBtn = document.getElementById('nightBtn');
-            if (nightActive) {
-                nightBtn.innerHTML = '🌙 NIGHT ON';
-            } else {
-                nightBtn.innerHTML = '🌙 NIGHT OFF';
-            }
+            renderNightButton();
             
             updateDisplay();
             if (currentMode === 'auto' && currentLocationAddress) document.getElementById('current-location-address').textContent = currentLocationAddress;
@@ -643,8 +641,7 @@ let paymentSaving=false, settingsSaving=false;
         if (!['auto','gps','manual','delivery','schedule'].includes(mode)) return;
         gpsAttempt++;
         currentMode = mode;
-        const bookingAcc=document.getElementById('booking-accordion');
-        if(mode!=='schedule'&&bookingAcc)bookingAcc.classList.remove('open');
+        if(mode!=='schedule')closeM('booking-modal');
         if (!sTime && !usesManualDistance()) { gpsReady = false; document.getElementById('startBtn').disabled = true; }
         ['auto','gps','manual','delivery','schedule'].forEach(m => {
             const btn = document.getElementById(`mode-${m}`);
@@ -699,11 +696,7 @@ let paymentSaving=false, settingsSaving=false;
             document.getElementById('delivery-accordion').style.display = 'none';
             document.getElementById('manual-controls').style.display = 'block';
             
-            // Expand Schedule accordion directly
-            const bookingAcc = document.getElementById('booking-accordion');
-            if (bookingAcc && !bookingAcc.classList.contains('open')) {
-                toggleAccordion('booking-accordion');
-            }
+            openBookingPanel();
             gpsReady = true; document.getElementById('startBtn').disabled = false;
             setupAutocomplete('sch-start', 'sch-start-suggestions');
             setupAutocomplete('sch-end', 'sch-end-suggestions');
@@ -1768,8 +1761,7 @@ let paymentSaving=false, settingsSaving=false;
         document.getElementById('sch-manual-fare').value = '';
         document.getElementById('sch-notes').value = '';
 
-        // Collapse card accordion
-        toggleAccordion('booking-accordion');
+        closeM('booking-modal');
         showToast("නව කාලසටහන සාර්ථකව ඇතුළත් කරන ලදී!", "success");
         addSystemLog('INFO', 'New Ride Scheduled', `Customer: ${name}, Date: ${datetime}`);
     }
@@ -1867,10 +1859,7 @@ let paymentSaving=false, settingsSaving=false;
 
         closeM('schedule-manager-modal');
         
-        const bookingAccordion = document.getElementById('booking-accordion');
-        if (bookingAccordion && bookingAccordion.classList.contains('open')) {
-            toggleAccordion('booking-accordion');
-        }
+        closeM('booking-modal');
         
         // Execute instant ride start sequence
         setTimeout(() => {
@@ -1882,6 +1871,12 @@ let paymentSaving=false, settingsSaving=false;
     function openScheduleManager() {
         document.getElementById('schedule-manager-modal').style.display = 'flex';
         filterSchedulesTab('all');
+    }
+
+    function openBookingPanel() {
+        document.getElementById('booking-modal').style.display='flex';
+        setupAutocomplete('sch-start','sch-start-suggestions');
+        setupAutocomplete('sch-end','sch-end-suggestions');
     }
 
     function openScheduleManagerFromSettings() {
@@ -2603,16 +2598,20 @@ let paymentSaving=false, settingsSaving=false;
         if (el) el.classList.toggle('open');
     }
     
+    function renderNightButton() {
+        const btn=document.getElementById('nightBtn');if(!btn)return;
+        btn.innerHTML='🌙';
+        btn.setAttribute('aria-label',nightActive?'Night charge on':'Night charge off');
+        btn.title=nightActive?'Night charge ON':'Night charge OFF';
+        btn.classList.toggle('night-active',nightActive);
+    }
+
     function toggleNightCharge() {
         nightActive = !nightActive;
-        const btn = document.getElementById('nightBtn');
+        renderNightButton();
         if (nightActive) {
-            btn.innerHTML = '🌙 NIGHT ON';
-            btn.classList.add('bg-indigo-600/20', 'border-indigo-500');
             showToast("රාත්‍රී ගාස්තු ක්‍රියාත්මකයි (Night Tariff Activated)", "success");
         } else {
-            btn.innerHTML = '🌙 NIGHT OFF';
-            btn.classList.remove('bg-indigo-600/20', 'border-indigo-500');
             showToast("රාත්‍රී ගාස්තු අක්‍රීයයි (Night Tariff Deactivated)", "info");
         }
         updateDisplay();
@@ -2622,7 +2621,10 @@ let paymentSaving=false, settingsSaving=false;
     function resetToNew() {
         if (rideEnding) return;
         if (pendingRideData) { openPaymentPopup(); return; }
-        if (confirm("ගමන මුල සිට ආරම්භ කිරීමට (Reset) අවශ්‍ය බව ස්ථිරද?")) {
+        const warning=sTime
+          ? "⚠️ සක්‍රීය ගමනක් පවතී. Reset කළහොත් save නොකළ වත්මන් ගමන් දත්ත අහිමි විය හැක. අනිවාර්යයෙන් Reset කරන්නද?"
+          : "නව ගමනක් සඳහා meter එක Reset කරන්නද?";
+        if (confirm(warning)) {
             resetDriverAppOnly();
         }
     }

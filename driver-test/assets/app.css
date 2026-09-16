@@ -115,6 +115,13 @@
         .report-summary { display: grid; grid-template-columns: repeat(auto-fit,minmax(100px,1fr)); gap: 12px; padding: 12px; border: 1px solid #334155; border-radius: 12px; }
         .report-summary strong { display:block; color: #34d399; font-size:16px; overflow-wrap:anywhere; }
         .report-row { padding:12px 0; border-bottom:1px solid #334155; overflow-wrap:anywhere; }
+        .app-header { display:flex; align-items:center; gap:8px; }
+        .app-brand { flex:1 1 auto; min-width:0; }
+        .header-actions { display:flex; align-items:center; justify-content:flex-end; gap:4px; flex:0 0 auto; }
+        .header-action-btn { width:36px; height:36px; min-height:36px !important; padding:0; display:flex; align-items:center; justify-content:center; border:1px solid rgba(71,85,105,.55); border-radius:11px; background:rgba(30,41,59,.65); font-size:16px !important; line-height:1; transition:.18s ease; }
+        .header-action-btn:hover { background:rgba(51,65,85,.8); }
+        .header-action-btn:active { transform:scale(.93); }
+        .header-action-btn.night-active { color:#fbbf24; background:rgba(217,119,6,.2); border-color:rgba(245,158,11,.75); box-shadow:0 0 0 2px rgba(245,158,11,.08); }
         .report-table-wrap { max-width:100%; overflow-x:auto; }
         .report-table { width:100%; border-collapse:collapse; }
         .report-table th, .report-table td { padding:8px; text-align:left; border-bottom:1px solid #334155; }
@@ -127,10 +134,19 @@
             #delivery-accordion .collapsible-content > .grid, #billing-accordion .collapsible-content > .grid,
             [id$='date-range-panel'] > .grid, #custom-date-range > .grid { grid-template-columns: minmax(0,1fr); }
             #main-logo-area { flex-shrink:0; }
-            #main-driver-view > .flex:first-of-type { flex-wrap:wrap; gap:8px; }
+            .header-actions { gap:3px; }
+            .header-action-btn { width:34px; height:34px; min-height:34px !important; border-radius:10px; font-size:15px !important; }
+            #display-app-name { max-width:68px; overflow:hidden; }
             .app-dialog > div { border-radius: 18px; padding: 14px; }
             .app-dialog .grid-cols-4 { grid-template-columns: repeat(2,minmax(0,1fr)); }
             #receiptModal > div { padding: 10px; }
+        }
+        @media (max-width: 360px) {
+            .app-brand { gap:5px !important; }
+            #main-logo-area { width:34px; height:34px; border-radius:10px; }
+            .header-action-btn { width:31px; height:34px; }
+            .header-actions { gap:2px; }
+            #display-app-name { font-size:8px !important; max-width:52px; }
         }
         @media (max-height: 480px) and (orientation: landscape) {
             .app-dialog { align-items: flex-start !important; }
