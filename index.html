@@ -30,7 +30,7 @@
     <!-- Google Fonts for premium typography -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Share+Tech+Mono&display=swap" rel="stylesheet">
     
-<link rel="stylesheet" href="assets/app.css?v=compact-header-20260916">
+<link rel="stylesheet" href="assets/app.css?v=receipt-address-20260916">
 </head>
 <body class="min-h-screen text-slate-100 flex items-center justify-center p-2 sm:p-4">
 
@@ -260,14 +260,6 @@
             <div id="distance-warning" hidden class="rounded-lg border border-amber-700/70 bg-amber-950/40 px-2 py-1.5 text-[9px] font-bold text-amber-300"></div>
         </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3">
-            <label class="block text-xs">Customer name (optional)
-                <input id="customer-name" maxlength="120" autocomplete="name" class="w-full p-3 bg-slate-950 rounded-lg text-base" placeholder="Name for CRM">
-            </label>
-            <label class="block text-xs">Customer email (optional)
-                <input id="customer-email" maxlength="120" type="email" autocomplete="email" inputmode="email" class="w-full p-3 bg-slate-950 rounded-lg text-base" placeholder="Receipt email">
-            </label>
-        </div>
         <!-- Manual Distance Adjustments -->
         <div id="manual-controls" class="hidden mt-3.5 pt-3.5 border-t border-slate-800/60 space-y-2.5">
             <div class="flex items-center justify-between gap-1">
@@ -308,6 +300,16 @@
             <span class="text-xs text-slate-500">▼</span>
         </div>
         <div class="collapsible-content px-3.5 pb-3.5 space-y-2.5 pt-1 border-t border-slate-800 text-[10px] sm:text-xs">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div class="space-y-1">
+                    <label for="customer-name" class="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase">Customer name (optional)</label>
+                    <input id="customer-name" maxlength="120" autocomplete="name" class="w-full bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-2 text-[10px] sm:text-xs text-white focus:outline-none" placeholder="Name for CRM">
+                </div>
+                <div class="space-y-1">
+                    <label for="customer-email" class="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase">Customer email (optional)</label>
+                    <input id="customer-email" maxlength="120" type="email" autocomplete="email" inputmode="email" class="w-full bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-2 text-[10px] sm:text-xs text-white focus:outline-none" placeholder="Receipt email">
+                </div>
+            </div>
             <div class="space-y-1">
                 <label for="mobile" class="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase">පාරිභෝගික දුරකථන අංකය</label>
                 <input type="tel" id="mobile" placeholder="පාරිභෝගික දුරකථන අංකය (අත්‍යවශ්‍ය නොවේ)" class="w-full bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-2 text-[10px] sm:text-xs text-white focus:outline-none">
@@ -1160,10 +1162,10 @@
     </div>
 </div>
 
-<script src="assets/config.js?v=compact-header-20260916"></script>
-<script src="assets/native-meter.js?v=compact-header-20260916"></script>
-<script src="assets/session.js?v=compact-header-20260916"></script>
-<script src="assets/reports.js?v=compact-header-20260916"></script>
-<script src="assets/app.js?v=compact-header-20260916"></script>
+<script src="assets/config.js?v=receipt-address-20260916"></script>
+<script src="assets/native-meter.js?v=receipt-address-20260916"></script>
+<script src="assets/session.js?v=receipt-address-20260916"></script>
+<script src="assets/reports.js?v=receipt-address-20260916"></script>
+<script src="assets/app.js?v=receipt-address-20260916"></script>
 </body>
 </html>

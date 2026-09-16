@@ -55,6 +55,18 @@ test('Frontend, session adapter and database integration',async t=>{
   run("setMode('schedule')");assert.equal(run('calcFare()'),420);assert.equal(els['booking-modal'].style.display,'flex');
   run("setMode('auto')");assert.equal(els['booking-modal'].style.display,'none');run('totalMeters=0');
  });
+ await t.test('Receipt drop address uses final GPS for Auto and selected destinations for other modes',async()=>{
+  run("currentMode='auto';currentDestinationAddress='Ignored Auto Destination';currentLocationAddress='';lastGeocodedLat=null;lastGeocodedLon=null");
+  assert.equal(await run('resolveReceiptDropAddress(6.9,79.8)'),'QA location');
+  for(const mode of ['gps','manual','delivery','schedule']){
+   run(`currentMode='${mode}';currentDestinationAddress='${mode} selected drop'`);
+   assert.equal(await run('resolveReceiptDropAddress(6.91,79.81)'),mode+' selected drop');
+  }
+  const fetchBefore=ctx.fetch;ctx.fetch=async url=>{if(String(url).includes('nominatim'))throw Error('QA offline');return fetchBefore(url);};
+  run("currentMode='auto';currentLocationAddress='Cached final address';lastGeocodedLat=6.9;lastGeocodedLon=79.8");
+  assert.equal(await run('resolveReceiptDropAddress(6.9005,79.8005)'),'Cached final address');ctx.fetch=fetchBefore;
+  run("currentDestinationAddress='';currentLocationAddress='';lastGeocodedLat=null;lastGeocodedLon=null");
+ });
  await t.test('Road estimate, fare comparison and GPS gap recovery protect billable distance',async()=>{
   const realFetch=ctx.fetch;
   ctx.fetch=async url=>{
