@@ -48,5 +48,11 @@ test('Passenger map is key-free and animates frequent live GPS updates',()=>{
  assert.match(js,/tiles\.openfreemap\.org\/styles\/liberty/);assert.doesNotMatch(js,/basemaps\.cartocdn/);
  assert.match(html,/maplibre-gl-leaflet/);assert.match(html,/strict-origin-when-cross-origin/);assert.doesNotMatch(html,/content="no-referrer"/);
  assert.match(js,/function movePassengerMarkerSmooth/);assert.match(js,/passengerTrailLine/);
- assert.match(js,/LIVE_TRACKING_POLL_MS = 5000/);assert.match(html,/live-map2-20260915/);
+ assert.match(js,/LIVE_TRACKING_POLL_MS = 5000/);assert.match(html,/compact-header-20260916/);
+});
+test('Compact header owns ride actions and voice control stays dormant',()=>{
+ const js=readFileSync(new URL('../assets/app.js',import.meta.url),'utf8'),html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
+ for(const id of ['nightBtn','header-reset-btn','header-route-btn','mainScheduleBtn'])assert.match(html,new RegExp('id="'+id+'"'));
+ assert.match(html,/id="booking-modal"/);assert.doesNotMatch(html,/id="voiceBtn"|id="voiceStatus"/);
+ assert.match(js,/const VOICE_CONTROL_ENABLED = false/);assert.match(js,/function toggleVoiceCommand/);
 });

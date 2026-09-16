@@ -13,7 +13,12 @@ test('Frontend, session adapter and database integration',async t=>{
  try{
  const els=Object.fromEntries([...html.matchAll(/\bid="([^"]+)"/g)].map(m=>[m[1],element(m[1])]));els['wait-select'].value='0';
  const document={body:element(),documentElement:element(),getElementById:id=>els[id]||null,querySelectorAll:()=>[],querySelector:()=>null,createElement:()=>element(),addEventListener(){}};
- const ctx={console,document,fetch,URL,Blob,URLSearchParams,AbortSignal,AbortController,crypto:webcrypto,Uint8Array,setTimeout:()=>1,clearTimeout(){},setInterval:()=>1,clearInterval(){},navigator:{},location:{href:'http://localhost:5055/',protocol:'http:',reload(){}},window:{location:{search:''},AMT_CONFIG:{apiBase:'http://127.0.0.1:'+app.server.address().port},addEventListener(){},innerHeight:640},confirm:()=>true};
+ const qaFetch=(url,options)=>String(url).includes('nominatim.openstreetmap.org')
+  ? Promise.resolve({ok:true,json:async()=>({display_name:'QA location'})})
+  : String(url).includes('router.project-osrm.org')
+    ? Promise.resolve({ok:true,json:async()=>({routes:[{distance:1500,duration:420}]})})
+    : fetch(url,options);
+ const ctx={console,document,fetch:qaFetch,URL,Blob,URLSearchParams,AbortSignal,AbortController,crypto:webcrypto,Uint8Array,setTimeout:()=>1,clearTimeout(){},setInterval:()=>1,clearInterval(){},navigator:{},location:{href:'http://localhost:5055/',protocol:'http:',reload(){}},window:{location:{search:''},AMT_CONFIG:{apiBase:'http://127.0.0.1:'+app.server.address().port},addEventListener(){},innerHeight:640},confirm:()=>true};
  vm.createContext(ctx);vm.runInContext(readFileSync(new URL('../assets/session.js',import.meta.url),'utf8'),ctx);ctx.cloudStore=ctx.window.cloudStore;
  vm.runInContext(readFileSync(new URL('../assets/app.js',import.meta.url),'utf8'),ctx);const run=s=>vm.runInContext(s,ctx);
  const boot=ctx.window.onload();els['account-user'].value='integration';els['account-password'].value='Integration-test-123';await els['account-form'].onsubmit({preventDefault(){}});await boot;
@@ -44,11 +49,11 @@ test('Frontend, session adapter and database integration',async t=>{
   assert.equal((await ctx.cloudStore.request('/state')).version,s.version);els['set-app-name'].value='QA Taxi';
   els['set-rate'].value='1000001';await run('saveSettings()');assert.equal(ctx.cloudStore.dirty,false);els['set-rate'].value='80';
  });
- await t.test('Delivery and Book Schedule use their own tariffs and close the booking panel',()=>{
+ await t.test('Delivery and Book Schedule use their own tariffs and move booking into a modal',()=>{
   run("SETTINGS.deliveryTariff={base:250,rate:100,waitRate:10,nightPercent:20};SETTINGS.scheduleTariff={base:300,rate:120,waitRate:12,nightPercent:25};totalMeters=2000");
   run("setMode('delivery')");assert.equal(run('calcFare()'),350);
-  run("setMode('schedule')");assert.equal(run('calcFare()'),420);assert.equal(els['booking-accordion'].classList.contains('open'),true);
-  run("setMode('auto')");assert.equal(els['booking-accordion'].classList.contains('open'),false);run('totalMeters=0');
+  run("setMode('schedule')");assert.equal(run('calcFare()'),420);assert.equal(els['booking-modal'].style.display,'flex');
+  run("setMode('auto')");assert.equal(els['booking-modal'].style.display,'none');run('totalMeters=0');
  });
  await t.test('Road estimate, fare comparison and GPS gap recovery protect billable distance',async()=>{
   const realFetch=ctx.fetch;
