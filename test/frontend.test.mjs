@@ -111,6 +111,11 @@ test('Frontend, session adapter and database integration',async t=>{
   assert.equal(run('appendRidePath(7.5,80.5)'),false);assert.equal(run('ridePath.length'),2);
   ctx.L={latLng:(lat,lng)=>({lat,lng})};run('passengerHasFix=false;passengerMarker={getLatLng(){return {lat:6.9,lng:79.8}},setLatLng(value){globalThis.__point=value}};passengerMap={setView(){},panTo(){},getBounds(){return {pad(){return {contains(){return true}}}}}};movePassengerMarkerSmooth(6.9001,79.8001)');const point=run('globalThis.__point');assert.equal(Number(point.lat),6.9001);assert.equal(Number(point.lng),79.8001);delete ctx.L;
  });
+ await t.test('Road matching snaps the blue display path without replacing fare GPS points',async()=>{
+  const realFetch=ctx.fetch;ctx.fetch=async url=>String(url).includes('/match/v1/driving/')?{ok:true,json:async()=>({matchings:[{geometry:{coordinates:[[79.8,6.9],[79.8002,6.9002]]}}]})}:realFetch(url);
+  run('ridePath=[[6.9,79.8],[6.9001,79.8001]];roadSnappedPath=[];lastRoadSnapTime=0');assert.equal(await run('refreshRoadSnappedPath(true)'),true);
+  assert.deepEqual(Array.from(run('displayRidePath()'),point=>Array.from(point)),[[6.9,79.8],[6.9002,79.8002]]);assert.deepEqual(Array.from(run('ridePath'),point=>Array.from(point)),[[6.9,79.8],[6.9001,79.8001]]);ctx.fetch=realFetch;
+ });
  await t.test('All five ride modes and Settings submenus remain callable',()=>{
   for(const mode of ['auto','gps','manual','delivery','schedule'])run(`setMode('${mode}')`);
   for(const action of ['openLogin','openAppSettings','openFuelLogModal','openRepairLogModal','openReportsMenu','openDriverApp','openDatabaseBackupModal','openSystemLogModal'])run(action+'()');

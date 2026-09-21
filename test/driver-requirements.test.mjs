@@ -48,7 +48,8 @@ test('Passenger map is key-free and animates frequent live GPS updates',()=>{
  assert.match(js,/tiles\.openfreemap\.org\/styles\/liberty/);assert.doesNotMatch(js,/basemaps\.cartocdn/);
  assert.match(html,/maplibre-gl-leaflet/);assert.match(html,/strict-origin-when-cross-origin/);assert.doesNotMatch(html,/content="no-referrer"/);
  assert.match(js,/function movePassengerMarkerSmooth/);assert.match(js,/passengerPathLine/);
- assert.match(js,/LIVE_TRACKING_POLL_MS = 5000/);assert.match(html,/gps-address-20260921/);
+ assert.match(js,/LIVE_TRACKING_POLL_MS = 5000/);assert.match(html,/road-snap-20260921/);
+ assert.match(js,/function refreshRoadSnappedPath/);assert.match(js,/match\\/v1\\/driving/);assert.match(js,/MAX_GAP_CORRECTION_METERS = 2000/);assert.match(js,/estimatedDistanceMeters\\*\\.12/);
 });
 test('Customer identity lives inside billing and receipt drop resolution is mode-aware',()=>{
  const js=readFileSync(new URL('../assets/app.js',import.meta.url),'utf8'),html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
