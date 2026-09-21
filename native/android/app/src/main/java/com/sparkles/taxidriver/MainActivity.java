@@ -26,9 +26,9 @@ import java.util.ArrayList;
 import java.io.*;
 
 public class MainActivity extends Activity {
- // Use a separate test Pages deployment before enabling the new native meter.
  static final String HOST="sparkles-systems-solutions.github.io";
- static final String PATH="/Advance-Meeter-Taxi-slzzz-oo/driver-test/";
+ static final String PATH="/Advance-Meeter-Taxi-slzzz-oo/";
+ static final String WEB_RELEASE="schedule-manager-20260921-r2";
  static final int LOCATION_REQUEST=100;
  static final int FILE_CHOOSER_REQUEST=102;
  static final int VOICE_REQUEST=103;
@@ -47,6 +47,7 @@ public class MainActivity extends Activity {
   FrameLayout root=new FrameLayout(this);web=new WebView(this);root.addView(web,new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.MATCH_PARENT));setContentView(root);
   root.setFitsSystemWindows(true);root.setOnApplyWindowInsetsListener((view,insets)->{view.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());return insets;});root.post(root::requestApplyInsets);
   web.getSettings().setJavaScriptEnabled(true);web.getSettings().setDomStorageEnabled(true);web.getSettings().setGeolocationEnabled(true);
+  web.getSettings().setCacheMode(WebSettings.LOAD_NO_CACHE);
   web.getSettings().setAllowFileAccess(false);web.getSettings().setAllowContentAccess(true);
   web.getSettings().setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
   WebViewCompat.addWebMessageListener(web,"TaxiNative",Collections.singleton("https://"+HOST),(view,message,origin,mainFrame,reply)->{if(mainFrame&&trusted(view.getUrl()))handle(message.getData());});
@@ -67,7 +68,7 @@ public class MainActivity extends Activity {
   hadPreciseLocation=hasPreciseLocation();
   if(hadPreciseLocation)loadApp();else requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION,Manifest.permission.ACCESS_COARSE_LOCATION},LOCATION_REQUEST);
  }
- void loadApp(){if(pageLoaded)return;pageLoaded=true;web.loadUrl("https://"+HOST+PATH);requestNotificationPermission();}
+ void loadApp(){if(pageLoaded)return;pageLoaded=true;web.clearCache(true);web.loadUrl("https://"+HOST+PATH+"?app="+WEB_RELEASE);requestNotificationPermission();}
  void requestNotificationPermission(){if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},101);}
  @Override public void onRequestPermissionsResult(int requestCode,String[] permissions,int[] results){
   super.onRequestPermissionsResult(requestCode,permissions,results);
