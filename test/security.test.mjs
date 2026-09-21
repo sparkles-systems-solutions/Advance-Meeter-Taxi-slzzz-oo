@@ -1,0 +1,36 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { once } from 'node:events';
+import { createApp } from '../server/server.mjs';
+import { addUser } from '../server/store.mjs';
+const origin='https://sparkles-systems-solutions.github.io';
+async function fixture(){const app=createApp({dbFile:':memory:',origin});await addUser(app.db,'admin','Test-password-123','admin');await addUser(app.db,'driver','Different-password-123','driver');app.server.listen(0,'127.0.0.1');await once(app.server,'listening');const base='http://127.0.0.1:'+app.server.address().port;const call=async(path,{token,method='GET',data,version,requestOrigin=origin}={})=>{const response=await fetch(base+'/api'+path,{method,headers:{Origin:requestOrigin,'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{}),...(version!==undefined?{'If-Match':String(version)}:{})},body:data===undefined?undefined:JSON.stringify(data)});return {status:response.status,data:await response.json(),headers:response.headers};};const login=async(user,password)=>(await call('/login',{method:'POST',data:{username:user,password}})).data.token;return {...app,call,login,base};}
+test('Authentication, account isolation, state validation and share lifecycle',async t=>{const f=await fixture();try{
+ await t.test('Anonymous state blocked',async()=>assert.equal((await f.call('/state')).status,401));
+ await t.test('Wrong password denied',async()=>assert.equal((await f.call('/login',{method:'POST',data:{username:'admin',password:'wrong'}})).status,401));
+ const admin=await f.login('admin','Test-password-123'),driver=await f.login('driver','Different-password-123');assert.equal(admin.length,64);
+ await t.test('Password stored only as salted hash',()=>{const row=f.db.prepare('SELECT password FROM users WHERE username=?').get('admin');assert(row.password.includes(':'));assert(!row.password.includes('Test-password'));});
+ let state=(await f.call('/state',{token:admin})).data;
+ await t.test('Exact CORS origin enforced',async()=>assert.equal((await f.call('/state',{token:admin,requestOrigin:'https://evil.test'})).status,403));
+ await t.test('Admin changes own tariff',async()=>{const s=JSON.parse(state.data.settings);s.rate=90;state.data.settings=JSON.stringify(s);assert.equal((await f.call('/state',{token:admin,method:'PUT',version:0,data:state.data})).status,200);});
+ await t.test('Stale version rejected',async()=>assert.equal((await f.call('/state',{token:admin,method:'PUT',version:0,data:state.data})).status,409));
+ const driverState=(await f.call('/state',{token:driver})).data;
+ await t.test('Accounts have separate state',()=>assert.equal(JSON.parse(driverState.data.settings).rate,80));
+ await t.test('Driver changes own tariff through API',async()=>{const copy=structuredClone(driverState.data);const s=JSON.parse(copy.settings);s.base=1;copy.settings=JSON.stringify(s);assert.equal((await f.call('/state',{token:driver,method:'PUT',version:0,data:copy})).status,200);});
+ const receipt={id:'test-1',time:Date.now(),km:2,fare:190,wait:0,disc:0,manualFare:0,nightUsed:false,from:'Test A',to:'Test B',payment:{method:'Cash'}};
+ await t.test('Tampered fare rejected',async()=>{const copy=structuredClone(state.data);copy.rides=JSON.stringify([{...receipt,fare:1}]);assert.equal((await f.call('/state',{token:admin,method:'PUT',version:1,data:copy})).status,422);});
+ await t.test('Correct receipt saved with server tariff',async()=>{state.data.rides=JSON.stringify([receipt]);assert.equal((await f.call('/state',{token:admin,method:'PUT',version:1,data:state.data})).status,200);state=(await f.call('/state',{token:admin})).data;assert.equal(JSON.parse(state.data.rides)[0].tariff.rate,90);});
+ await t.test('Saved receipts immutable',async()=>{const copy=structuredClone(state.data);const r=JSON.parse(copy.rides);r[0].fare=2;copy.rides=JSON.stringify(r);assert.equal((await f.call('/state',{token:admin,method:'PUT',version:2,data:copy})).status,422);});
+ await t.test('No paid receipt deletion',async()=>{const copy={...state.data,rides:'[]'};assert.equal((await f.call('/state',{token:admin,method:'PUT',version:2,data:copy})).status,422);});
+ await t.test('Valid no-op state accepted',async()=>assert.equal((await f.call('/state',{token:admin,method:'PUT',version:2,data:state.data})).status,200));
+ await t.test('Tracking creation requires sign-in',async()=>assert.equal((await f.call('/track',{method:'POST',data:{}})).status,401));
+ const share=(await f.call('/track',{token:admin,method:'POST',data:{}})).data.token;
+ await t.test('Different account cannot publish tracking',async()=>assert.equal((await f.call('/track/'+share,{token:driver,method:'PUT',data:{}})).status,404));
+ await t.test('Tracking strips phone and contact details',async()=>{const response=await f.call('/track/'+share,{token:admin,method:'PUT',data:{lat:7,lng:80,currentFare:190,distanceTraveled:'2.0',status:'active',mode:'gps',mobile:'PRIVATE',deliveryDetails:{phone:'PRIVATE'}}});assert.equal(response.status,200);const r=await f.call('/track/'+share);assert.equal(r.status,200);assert(!JSON.stringify(r.data).includes('PRIVATE'));});
+ await t.test('Tracking expiry enforced',async()=>{f.db.prepare('UPDATE shares SET expires=?').run(Date.now()-1);assert.equal((await f.call('/track/'+share)).status,404);});
+ const share2=(await f.call('/track',{token:admin,method:'POST',data:{}})).data.token;
+ await t.test('Revoke invalidates the public link',async()=>{assert.equal((await f.call('/track/'+share2,{token:admin,method:'DELETE'})).status,200);assert.equal((await f.call('/track/'+share2)).status,404);});
+ await t.test('Session logout revokes token',async()=>{assert.equal((await f.call('/logout',{token:admin,method:'POST',data:{}})).status,200);assert.equal((await f.call('/state',{token:admin})).status,401);});
+ await t.test('Server code and database not served',async()=>{for(const path of ['/server/server.mjs','/data/taxi.sqlite','/.env'])assert.equal((await fetch(f.base+path)).status,404);});
+ await t.test('Server maintains audit and recovery snapshots',()=>{assert(f.db.prepare('SELECT COUNT(*) AS n FROM audit').get().n>=5);assert(f.db.prepare('SELECT COUNT(*) AS n FROM snapshots').get().n>=2);});
+}finally{await new Promise(resolve=>f.server.close(resolve));}});

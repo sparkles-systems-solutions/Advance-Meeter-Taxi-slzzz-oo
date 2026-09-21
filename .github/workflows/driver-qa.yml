@@ -1,0 +1,38 @@
+name: Driver integration QA
+on:
+  push:
+    branches: [feat/driver-native-admin]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm test
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.11.1
+      - run: gradle -p native/android assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: taxi-driver-android-test
+          path: native/android/app/build/outputs/apk/debug/*.apk
+  ios:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install xcodegen
+      - run: cd native/ios && xcodegen generate && sed -i '' 's/objectVersion = 77;/objectVersion = 60;/' TaxiDriver.xcodeproj/project.pbxproj && xcodebuild -project TaxiDriver.xcodeproj -scheme TaxiDriver -sdk iphoneos -configuration Debug CODE_SIGNING_ALLOWED=NO build
