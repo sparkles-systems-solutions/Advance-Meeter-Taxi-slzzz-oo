@@ -48,7 +48,7 @@ test('Passenger map is key-free and animates frequent live GPS updates',()=>{
  assert.match(js,/tiles\.openfreemap\.org\/styles\/liberty/);assert.doesNotMatch(js,/basemaps\.cartocdn/);
  assert.match(html,/maplibre-gl-leaflet/);assert.match(html,/strict-origin-when-cross-origin/);assert.doesNotMatch(html,/content="no-referrer"/);
  assert.match(js,/function movePassengerMarkerSmooth/);assert.match(js,/passengerPathLine/);
- assert.match(js,/LIVE_TRACKING_POLL_MS = 5000/);assert.match(html,/road-snap-20260921/);
+ assert.match(js,/LIVE_TRACKING_POLL_MS = 5000/);assert.match(html,/schedule-manager-20260921/);
  assert.match(js,/function refreshRoadSnappedPath/);assert.match(js,/match\/v1\/driving/);assert.match(js,/MAX_GAP_CORRECTION_METERS = 2000/);assert.match(js,/estimatedDistanceMeters\*\.12/);
 });
 test('Customer identity lives inside billing and receipt drop resolution is mode-aware',()=>{
@@ -61,6 +61,8 @@ test('Customer identity lives inside billing and receipt drop resolution is mode
 test('Compact header owns ride actions and voice control stays dormant',()=>{
  const js=readFileSync(new URL('../assets/app.js',import.meta.url),'utf8'),html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
  for(const id of ['nightBtn','header-reset-btn','header-route-btn','mainScheduleBtn'])assert.match(html,new RegExp('id="'+id+'"'));
+ assert.match(html,/id="mainScheduleBtn"[^>]+onclick="openScheduleManager\(\)"/);
+ assert.doesNotMatch(html,/id="mainScheduleBtn"[^>]+onclick="setMode\('schedule'\)"/);
  assert.match(html,/id="booking-modal"/);assert.doesNotMatch(html,/id="voiceBtn"|id="voiceStatus"/);
  assert.match(js,/const VOICE_CONTROL_ENABLED = false/);assert.match(js,/function toggleVoiceCommand/);
 });
