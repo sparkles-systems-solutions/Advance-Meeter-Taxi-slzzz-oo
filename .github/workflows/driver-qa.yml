@@ -45,6 +45,9 @@ jobs:
   deploy-live:
     needs: [web, android, ios]
     runs-on: ubuntu-latest
+    environment:
+      name: live-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - name: Assemble public site only
