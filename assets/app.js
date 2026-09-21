@@ -476,7 +476,7 @@ let paymentSaving=false, settingsSaving=false;
         }
         const attempt = ++gpsAttempt;
         document.getElementById('gps-status').textContent = 'Finding GPS…';
-        navigator.geolocation.getCurrentPosition(pos => {
+        navigator.geolocation.getCurrentPosition(async pos => {
             if (attempt !== gpsAttempt || usesManualDistance() || sTime) return;
             let acc = pos.coords.accuracy;
             lastLat = pos.coords.latitude;
@@ -490,6 +490,7 @@ let paymentSaving=false, settingsSaving=false;
                 if (currentMode === 'gps') {
                     const field = document.getElementById('start-loc');
                     if (!field.value.trim()) { field.value = getSriLankaFallbackAddress(lastLat,lastLon); startLocationAddress = field.value; }
+                    await resolvePickupAddress(lastLat,lastLon);
                 }
                 if (currentMode === 'auto') {
                     currentLocationLat = lastLat;
@@ -645,6 +646,40 @@ let paymentSaving=false, settingsSaving=false;
             && calculateDistanceMeters(lastResolvedAddress.lat, lastResolvedAddress.lng, lat, lon) <= 300) return lastResolvedAddress.address;
         return getSriLankaFallbackAddress(lat, lon);
     }
+
+    function acquireFreshPosition(timeout=7000) {
+        return new Promise((resolve,reject)=>{
+            if(typeof navigator.geolocation?.getCurrentPosition!=='function'){reject(new Error('Geolocation unavailable'));return;}
+            navigator.geolocation.getCurrentPosition(resolve,reject,{enableHighAccuracy:true,timeout,maximumAge:0});
+        });
+    }
+
+    async function resolvePickupAddress(lat,lon) {
+        if(!Number.isFinite(lat)||!Number.isFinite(lon))return '';
+        const field=document.getElementById('start-loc');
+        const before=String(field?.value||'').trim();
+        if(before&&isResolvedAddress(before))return before;
+        const address=await resolveFinalAddress(lat,lon);
+        if(field&&(!field.value.trim()||!isResolvedAddress(field.value))){field.value=address;startLocationAddress=address;}
+        return address;
+    }
+
+    async function refreshPickupFromGPS() {
+        if(typeof navigator.geolocation?.getCurrentPosition!=='function'||sTime||!['gps','manual','delivery'].includes(currentMode))return '';
+        const field=document.getElementById('start-loc');
+        if(field&&!field.value.trim())field.placeholder='Resolving current pickup address…';
+        try{
+            const pos=await acquireFreshPosition();
+            if(!['gps','manual','delivery'].includes(currentMode)||sTime)return '';
+            const lat=pos.coords.latitude,lon=pos.coords.longitude,acc=Number(pos.coords.accuracy)||0;
+            currentLat=lat;currentLng=lon;currentLocationLat=lat;currentLocationLon=lon;
+            if(acc<=MAX_ACCURACY){gpsReady=true;document.getElementById('gps-status').textContent=`✅ GPS Ready (${Math.round(acc)}m)`;}
+            return await resolvePickupAddress(lat,lon);
+        }catch(e){
+            console.warn('Pickup address refresh failed',e);
+            return '';
+        }finally{if(field)field.placeholder='Pickup location';}
+    }
     async function reverseGeocode(lat, lon) {
         if (Date.now() - lastGeocodeTime < 10000) return currentLocationAddress;
         lastGeocodeTime = Date.now();
@@ -731,6 +766,7 @@ let paymentSaving=false, settingsSaving=false;
             if (!sTime) startGPS();
             setupAutocomplete('start-loc', 'start-loc-suggestions');
             setupAutocomplete('end-loc', 'end-loc-suggestions');
+            refreshPickupFromGPS();
         } else if (mode === 'manual') {
             document.getElementById('auto-location-card').style.display = 'none';
             document.getElementById('location-fields').style.display = 'block';
@@ -741,6 +777,7 @@ let paymentSaving=false, settingsSaving=false;
             document.getElementById('startBtn').disabled = false;
             setupAutocomplete('start-loc', 'start-loc-suggestions');
             setupAutocomplete('end-loc', 'end-loc-suggestions');
+            refreshPickupFromGPS();
         } else if (mode === 'delivery') {
             document.getElementById('auto-location-card').style.display = 'none';
             document.getElementById('location-fields').style.display = 'block';
@@ -749,6 +786,7 @@ let paymentSaving=false, settingsSaving=false;
             gpsReady = true; document.getElementById('startBtn').disabled = false;
             setupAutocomplete('start-loc', 'start-loc-suggestions');
             setupAutocomplete('end-loc', 'end-loc-suggestions');
+            refreshPickupFromGPS();
         } else if (mode === 'schedule') {
             // Expands booking scheduler accordion dynamically and focuses details
             document.getElementById('auto-location-card').style.display = 'none';
@@ -1074,6 +1112,10 @@ let paymentSaving=false, settingsSaving=false;
                 startLocVal = document.getElementById('sch-start').value.trim();
                 endLocVal = document.getElementById('sch-end').value.trim();
             }
+            if(['gps','manual','delivery'].includes(currentMode)&&(!startLocVal||!isResolvedAddress(startLocVal))){
+                const refreshedPickup=await refreshPickupFromGPS();
+                if(refreshedPickup)startLocVal=refreshedPickup;
+            }
             
             if(!startLocVal || !endLocVal) { 
                 showToast("කරුණාකර Pickup සහ Drop ස්ථාන ඇතුළත් කරන්න!", 'warning'); 
@@ -1199,17 +1241,18 @@ let paymentSaving=false, settingsSaving=false;
         let finalLat = currentLat || lastLat;
         let finalLon = currentLng || lastLon;
         
-        if (!window.nativeMeter?.supported && !usesManualDistance() && navigator.geolocation) {
+        if (currentMode === 'auto' && navigator.geolocation) {
             try {
-                const finalPos = await new Promise((resolve, reject) => {
-                    navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 3000 });
-                });
-                finalLat = finalPos.coords.latitude;
-                finalLon = finalPos.coords.longitude;
-                currentLat = finalLat;
-                currentLng = finalLon;
+                const finalPos = await acquireFreshPosition(7000);
+                const freshAccuracy=Number(finalPos.coords.accuracy)||0;
+                if(freshAccuracy<=Math.max(100,MAX_ACCURACY)){
+                    finalLat = finalPos.coords.latitude;
+                    finalLon = finalPos.coords.longitude;
+                    currentLat = finalLat;
+                    currentLng = finalLon;
+                }
             } catch (e) {
-                console.log("Fallback geo trigger default values", e);
+                console.warn("Fresh final GPS unavailable; using the latest validated ride point", e);
             }
         }
         if (Number.isFinite(finalLat) && Number.isFinite(finalLon) && appendRidePath(finalLat, finalLon)) {

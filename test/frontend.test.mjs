@@ -94,6 +94,18 @@ test('Frontend, session adapter and database integration',async t=>{
   let attempts=0;ctx.fetch=async url=>{if(String(url).includes('nominatim')&&++attempts===1)throw Error('first request offline');if(String(url).includes('nominatim'))return {ok:true,json:async()=>({display_name:'Narahenpita, Colombo, Sri Lanka'})};return realFetch(url);};
   assert.match(await run('resolveFinalAddress(6.89,79.88)'),/Narahenpita.*Colombo/);assert.equal(attempts,2);ctx.fetch=realFetch;
  });
+ await t.test('GPS, Manual and Delivery replace coordinate placeholders with a pickup address',async()=>{
+  ctx.navigator.geolocation={getCurrentPosition(cb){cb({coords:{latitude:6.895228,longitude:79.882614,accuracy:8}});}};
+  for(const mode of ['gps','manual','delivery']){
+   run(`currentMode='${mode}';sTime=null;document.getElementById('start-loc').value='GPS: 6.895228, 79.882614 (address unavailable)'`);
+   assert.equal(await run('refreshPickupFromGPS()'),'QA location');assert.equal(els['start-loc'].value,'QA location');
+  }
+  delete ctx.navigator.geolocation;
+ });
+ await t.test('Fresh final GPS acquisition disables cached browser positions',async()=>{
+  let options;ctx.navigator.geolocation={getCurrentPosition(cb,_fail,value){options=value;cb({coords:{latitude:6.91,longitude:79.89,accuracy:6}});}};
+  const pos=await run('acquireFreshPosition(7000)');assert.equal(pos.coords.latitude,6.91);assert.equal(options.maximumAge,0);assert.equal(options.timeout,7000);delete ctx.navigator.geolocation;
+ });
  await t.test('Accepted GPS path is bounded and jump points do not move the public vehicle',()=>{
   run('ridePath=[]');assert.equal(run('appendRidePath(6.9,79.8)'),true);assert.equal(run('appendRidePath(6.9001,79.8)'),true);
   assert.equal(run('appendRidePath(7.5,80.5)'),false);assert.equal(run('ridePath.length'),2);
