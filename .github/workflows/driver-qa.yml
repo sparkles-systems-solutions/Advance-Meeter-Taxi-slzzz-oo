@@ -5,11 +5,6 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
-  pages: write
-  id-token: write
-concurrency:
-  group: pages
-  cancel-in-progress: true
 jobs:
   web:
     runs-on: ubuntu-latest
@@ -41,25 +36,3 @@ jobs:
       - uses: actions/checkout@v4
       - run: brew install xcodegen
       - run: cd native/ios && xcodegen generate && sed -i '' 's/objectVersion = 77;/objectVersion = 60;/' TaxiDriver.xcodeproj/project.pbxproj && xcodebuild -project TaxiDriver.xcodeproj -scheme TaxiDriver -sdk iphoneos -configuration Debug CODE_SIGNING_ALLOWED=NO build
-
-  deploy-live:
-    needs: [web, android, ios]
-    runs-on: ubuntu-latest
-    environment:
-      name: live-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Assemble public site only
-        run: |
-          mkdir public
-          cp index.html manifest.json public/
-          cp -R assets public/assets
-          touch public/.nojekyll
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: public
-      - name: Deploy current tested release
-        id: deployment
-        uses: actions/deploy-pages@v4
