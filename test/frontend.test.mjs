@@ -89,6 +89,16 @@ test('Frontend, session adapter and database integration',async t=>{
   let opened;ctx.window.open=url=>{opened=new URL(url);};run('openPhoneNavigation()');assert.equal(opened.searchParams.get('waypoints'),'Stop Two|Stop One');assert.equal(opened.searchParams.get('destination'),'Final Place');
   ctx.fetch=realFetch;run("routeStops=[];routeStopPoints={};currentDestinationAddress='';selectedDestinationPoint=null;estimatedDistanceMeters=0");
  });
+ await t.test('Final drop retries reverse geocoding when the first request fails',async()=>{
+  const realFetch=ctx.fetch;
+  let attempts=0;ctx.fetch=async url=>{if(String(url).includes('nominatim')&&++attempts===1)throw Error('first request offline');if(String(url).includes('nominatim'))return {ok:true,json:async()=>({display_name:'Narahenpita, Colombo, Sri Lanka'})};return realFetch(url);};
+  assert.match(await run('resolveFinalAddress(6.89,79.88)'),/Narahenpita.*Colombo/);assert.equal(attempts,2);ctx.fetch=realFetch;
+ });
+ await t.test('Accepted GPS path is bounded and jump points do not move the public vehicle',()=>{
+  run('ridePath=[]');assert.equal(run('appendRidePath(6.9,79.8)'),true);assert.equal(run('appendRidePath(6.9001,79.8)'),true);
+  assert.equal(run('appendRidePath(7.5,80.5)'),false);assert.equal(run('ridePath.length'),2);
+  ctx.L={latLng:(lat,lng)=>({lat,lng})};run('passengerHasFix=false;passengerMarker={getLatLng(){return {lat:6.9,lng:79.8}},setLatLng(value){globalThis.__point=value}};passengerMap={setView(){},panTo(){},getBounds(){return {pad(){return {contains(){return true}}}}}};movePassengerMarkerSmooth(6.9001,79.8001)');const point=run('globalThis.__point');assert.equal(Number(point.lat),6.9001);assert.equal(Number(point.lng),79.8001);delete ctx.L;
+ });
  await t.test('All five ride modes and Settings submenus remain callable',()=>{
   for(const mode of ['auto','gps','manual','delivery','schedule'])run(`setMode('${mode}')`);
   for(const action of ['openLogin','openAppSettings','openFuelLogModal','openRepairLogModal','openReportsMenu','openDriverApp','openDatabaseBackupModal','openSystemLogModal'])run(action+'()');

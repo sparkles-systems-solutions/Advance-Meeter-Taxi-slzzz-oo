@@ -4,6 +4,9 @@ import { randomBytes, timingSafeEqual, createHash } from 'node:crypto';
 const digest = value => createHash('sha256').update(value).digest('hex');
 const random = () => randomBytes(32).toString('hex');
 const randomLink = () => randomBytes(18).toString('base64url'); // 144-bit compact passenger capability
+const safeTrackingPath = path => Array.isArray(path) ? path.slice(-160)
+ .filter(point=>Array.isArray(point)&&point.length===2&&Number.isFinite(point[0])&&Number.isFinite(point[1])&&Math.abs(point[0])<=90&&Math.abs(point[1])<=180)
+ .map(point=>[Number(point[0].toFixed(6)),Number(point[1].toFixed(6))]) : [];
 // Login keys are 256-bit random secrets, never human-chosen passwords.
 // SHA-256 is appropriate here because offline guessing a random 256-bit key is infeasible.
 function keyMatches(key, stored) {
@@ -197,12 +200,12 @@ export default {
     await ensureRideLinks();
     const hash=digest(shareMatch[1]);
     const owned=await q('SELECT ride_id,expires,payload FROM ride_links WHERE token_hash=? AND user_id=? AND expires>?',hash,user.id,now).first();
-    if(!owned){const legacy=await q('SELECT expires,payload FROM shares WHERE token_hash=? AND user_id=? AND expires>?',hash,user.id,now).first();if(!legacy)fail(404,'Share not found');if(method==='DELETE'){await q('DELETE FROM shares WHERE token_hash=? AND user_id=?',hash,user.id).run();return send(200,{ok:true});}const p=await jsonBody(request,8192);if(JSON.parse(legacy.payload).status==='completed')fail(409,'Ride tracking is completed');if(!p||!Number.isFinite(p.lat)||!Number.isFinite(p.lng)||Math.abs(p.lat)>90||Math.abs(p.lng)>180||!Number.isFinite(p.currentFare)||p.currentFare<0||!['active','completed'].includes(p.status))fail(422,'Invalid tracking update');const safe={id:shareMatch[1],lat:p.lat,lng:p.lng,currentFare:p.currentFare,distanceTraveled:String(p.distanceTraveled).slice(0,20),status:p.status,mode:String(p.mode||'').slice(0,20),timestamp:now};await q('UPDATE shares SET payload=?,expires=? WHERE token_hash=? AND user_id=?',JSON.stringify(safe),p.status==='completed'?now+900000:legacy.expires,hash,user.id).run();return send(200,{ok:true});}
+    if(!owned){const legacy=await q('SELECT expires,payload FROM shares WHERE token_hash=? AND user_id=? AND expires>?',hash,user.id,now).first();if(!legacy)fail(404,'Share not found');if(method==='DELETE'){await q('DELETE FROM shares WHERE token_hash=? AND user_id=?',hash,user.id).run();return send(200,{ok:true});}const p=await jsonBody(request,8192);if(JSON.parse(legacy.payload).status==='completed')fail(409,'Ride tracking is completed');if(!p||!Number.isFinite(p.lat)||!Number.isFinite(p.lng)||Math.abs(p.lat)>90||Math.abs(p.lng)>180||!Number.isFinite(p.currentFare)||p.currentFare<0||!['active','completed'].includes(p.status))fail(422,'Invalid tracking update');const safe={id:shareMatch[1],lat:p.lat,lng:p.lng,currentFare:p.currentFare,distanceTraveled:String(p.distanceTraveled).slice(0,20),status:p.status,mode:String(p.mode||'').slice(0,20),path:safeTrackingPath(p.path),timestamp:now};await q('UPDATE shares SET payload=?,expires=? WHERE token_hash=? AND user_id=?',JSON.stringify(safe),p.status==='completed'?now+900000:legacy.expires,hash,user.id).run();return send(200,{ok:true});}
     if(method==='DELETE'){await q('DELETE FROM ride_links WHERE token_hash=? AND user_id=?',hash,user.id).run();return send(200,{ok:true});}
     const p=await jsonBody(request,8192);
     if(!p||!Number.isFinite(p.lat)||!Number.isFinite(p.lng)||Math.abs(p.lat)>90||Math.abs(p.lng)>180||!Number.isFinite(p.currentFare)||p.currentFare<0||!['active','completed'].includes(p.status))fail(422,'Invalid tracking update');
     const prior=JSON.parse(owned.payload);if(prior.status==='completed'&&p.status!=='completed')fail(409,'Ride tracking is completed');
-    const safe={id:shareMatch[1],rideId:owned.ride_id,lat:p.lat,lng:p.lng,currentFare:p.currentFare,distanceTraveled:String(p.distanceTraveled).slice(0,20),status:p.status,mode:String(p.mode||'').slice(0,20),timestamp:now,route:safeRoute(p.route)||prior.route};
+    const safe={id:shareMatch[1],rideId:owned.ride_id,lat:p.lat,lng:p.lng,currentFare:p.currentFare,distanceTraveled:String(p.distanceTraveled).slice(0,20),status:p.status,mode:String(p.mode||'').slice(0,20),path:safeTrackingPath(p.path),timestamp:now,route:safeRoute(p.route)||prior.route};
     let expires=owned.expires;
     if(p.status==='completed'&&typeof p.receiptId==='string'){
      const state=await q('SELECT data FROM states WHERE user_id=?',user.id).first(),stored=JSON.parse(state.data),ride=JSON.parse(stored.rides||'[]').find(r=>r.id===p.receiptId);

@@ -47,14 +47,14 @@ test('Passenger map is key-free and animates frequent live GPS updates',()=>{
  const js=readFileSync(new URL('../assets/app.js',import.meta.url),'utf8'),html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
  assert.match(js,/tiles\.openfreemap\.org\/styles\/liberty/);assert.doesNotMatch(js,/basemaps\.cartocdn/);
  assert.match(html,/maplibre-gl-leaflet/);assert.match(html,/strict-origin-when-cross-origin/);assert.doesNotMatch(html,/content="no-referrer"/);
- assert.match(js,/function movePassengerMarkerSmooth/);assert.match(js,/passengerTrailLine/);
- assert.match(js,/LIVE_TRACKING_POLL_MS = 5000/);assert.match(html,/receipt-address-20260916/);
+ assert.match(js,/function movePassengerMarkerSmooth/);assert.match(js,/passengerPathLine/);
+ assert.match(js,/LIVE_TRACKING_POLL_MS = 5000/);assert.match(html,/route-tracking-20260917/);
 });
 test('Customer identity lives inside billing and receipt drop resolution is mode-aware',()=>{
  const js=readFileSync(new URL('../assets/app.js',import.meta.url),'utf8'),html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
  const billing=html.slice(html.indexOf('id="billing-accordion"'),html.indexOf('<!-- Ride Status Indicator Panel -->'));
  for(const id of ['customer-name','customer-email','mobile'])assert.match(billing,new RegExp('id="'+id+'"'));
- assert.match(js,/function resolveReceiptDropAddress/);assert.match(js,/function selectedDropAddress/);assert.match(js,/cachedDistance<=1500/);
+ assert.match(js,/function resolveReceiptDropAddress/);assert.match(js,/function selectedDropAddress/);assert.match(js,/cachedDistance<=300/);
 });
 test('Compact header owns ride actions and voice control stays dormant',()=>{
  const js=readFileSync(new URL('../assets/app.js',import.meta.url),'utf8'),html=readFileSync(new URL('../index.html',import.meta.url),'utf8');

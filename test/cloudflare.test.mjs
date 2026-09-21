@@ -101,10 +101,10 @@ test('Worker with real SQLite: authorization, transactions and data validation',
  });
  await t.test('tracking ownership and privacy; replacement revokes old capability',async()=>{
   share=(await call('/api/track',{method:'POST',token:admin})).body.token;assert.match(share,/^[A-Za-z0-9_-]{24}$/);
-  const data={lat:6.9,lng:79.8,currentFare:200,status:'active',customerPhone:'private',customerName:'private'};
+  const data={lat:6.9,lng:79.8,currentFare:200,status:'active',path:[[6.9,79.8],[6.9001,79.8001],['bad',999]],customerPhone:'private',customerName:'private'};
   assert.equal((await call('/api/track/'+share,{method:'PUT',token:driver,data})).status,404);
   assert.equal((await call('/api/track/'+share,{method:'PUT',token:admin,data})).status,200);
-  const publicData=(await call('/api/track/'+share)).body;assert.equal(publicData.customerPhone,undefined);assert.equal(publicData.customerName,undefined);
+  const publicData=(await call('/api/track/'+share)).body;assert.equal(publicData.customerPhone,undefined);assert.equal(publicData.customerName,undefined);assert.deepEqual(publicData.path,[[6.9,79.8],[6.9001,79.8001]]);
   const next=(await call('/api/track',{method:'POST',token:admin})).body.token;
   assert.equal((await call('/api/track/'+share)).status,404);share=next;
   assert.equal((await call('/api/track/'+share,{method:'DELETE',token:admin})).status,200);assert.equal((await call('/api/track/'+share)).status,404);
