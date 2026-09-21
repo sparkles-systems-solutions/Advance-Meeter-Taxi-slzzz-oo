@@ -120,6 +120,12 @@ test('Frontend, session adapter and database integration',async t=>{
   for(const mode of ['auto','gps','manual','delivery','schedule'])run(`setMode('${mode}')`);
   for(const action of ['openLogin','openAppSettings','openFuelLogModal','openRepairLogModal','openReportsMenu','openDriverApp','openDatabaseBackupModal','openSystemLogModal'])run(action+'()');
  });
+ await t.test('Header calendar opens saved schedules without opening registration',()=>{
+  els['schedule-manager-modal'].style.display='none';els['booking-modal'].style.display='none';
+  run('openScheduleManager()');
+  assert.equal(els['schedule-manager-modal'].style.display,'flex');
+  assert.equal(els['booking-modal'].style.display,'none');
+ });
  await t.test('Manual, Delivery and Schedule retain manual controls and live GPS without changing distance',()=>{
   for(const mode of ['manual','delivery','schedule']){
    run(`setMode('${mode}')`);assert.equal(els['manual-controls'].style.display,'block');assert.equal(els.startBtn.disabled,false);
