@@ -13,7 +13,12 @@ test('Frontend, session adapter and database integration',async t=>{
  try{
  const els=Object.fromEntries([...html.matchAll(/\bid="([^"]+)"/g)].map(m=>[m[1],element(m[1])]));els['wait-select'].value='0';
  const document={body:element(),documentElement:element(),getElementById:id=>els[id]||null,querySelectorAll:()=>[],querySelector:()=>null,createElement:()=>element(),addEventListener(){}};
- const ctx={console,document,fetch,URL,Blob,URLSearchParams,AbortSignal,AbortController,crypto:webcrypto,Uint8Array,setTimeout:()=>1,clearTimeout(){},setInterval:()=>1,clearInterval(){},navigator:{},location:{href:'http://localhost:5055/',protocol:'http:',reload(){}},window:{location:{search:''},AMT_CONFIG:{apiBase:'http://127.0.0.1:'+app.server.address().port},addEventListener(){},innerHeight:640},confirm:()=>true};
+ const qaFetch=(url,options)=>String(url).includes('nominatim.openstreetmap.org')
+  ? Promise.resolve({ok:true,json:async()=>({display_name:'QA location'})})
+  : String(url).includes('router.project-osrm.org')
+    ? Promise.resolve({ok:true,json:async()=>({routes:[{distance:1500,duration:420}]})})
+    : fetch(url,options);
+ const ctx={console,document,fetch:qaFetch,URL,Blob,URLSearchParams,AbortSignal,AbortController,crypto:webcrypto,Uint8Array,setTimeout:()=>1,clearTimeout(){},setInterval:()=>1,clearInterval(){},navigator:{},location:{href:'http://localhost:5055/',protocol:'http:',reload(){}},window:{location:{search:''},AMT_CONFIG:{apiBase:'http://127.0.0.1:'+app.server.address().port},addEventListener(){},innerHeight:640},confirm:()=>true};
  vm.createContext(ctx);vm.runInContext(readFileSync(new URL('../assets/session.js',import.meta.url),'utf8'),ctx);ctx.cloudStore=ctx.window.cloudStore;
  vm.runInContext(readFileSync(new URL('../assets/app.js',import.meta.url),'utf8'),ctx);const run=s=>vm.runInContext(s,ctx);
  const boot=ctx.window.onload();els['account-user'].value='integration';els['account-password'].value='Integration-test-123';await els['account-form'].onsubmit({preventDefault(){}});await boot;
@@ -23,6 +28,14 @@ test('Frontend, session adapter and database integration',async t=>{
   els['set-app-name'].value='QA Taxi';await run('saveSettings()');
   const s=await ctx.cloudStore.request('/state');assert.equal(JSON.parse(s.data.settings).appName,'QA Taxi');
   assert.equal(els['sync-warning'].hidden,true);assert.equal(els['save-settings-button'].disabled,false);
+ });
+ await t.test('Language selector previews English immediately',()=>{
+  const translated=element();translated.dataset={en:'English label',bi:'සිංහල / English'};
+  const placeholder=element();placeholder.dataset={placeholderEn:'Pickup location',placeholderBi:'පිටත්වන ස්ථානය (Pickup)'};
+  document.querySelectorAll=selector=>selector==='[data-en][data-bi]'?[translated]:selector==='[data-placeholder-en][data-placeholder-bi]'?[placeholder]:[];
+  run("previewLanguage('en')");assert.equal(translated.textContent,'English label');assert.equal(placeholder.placeholder,'Pickup location');
+  run("previewLanguage('bi')");assert.equal(translated.textContent,'සිංහල / English');
+  document.querySelectorAll=()=>[];
  });
  await t.test('Settings failure stays visible; no false success or modal close',async()=>{
   run('openAppSettings()');const flush=ctx.cloudStore.flush;ctx.cloudStore.flush=async()=>{throw Error('QA offline');};
@@ -36,9 +49,91 @@ test('Frontend, session adapter and database integration',async t=>{
   assert.equal((await ctx.cloudStore.request('/state')).version,s.version);els['set-app-name'].value='QA Taxi';
   els['set-rate'].value='1000001';await run('saveSettings()');assert.equal(ctx.cloudStore.dirty,false);els['set-rate'].value='80';
  });
+ await t.test('Delivery and Book Schedule use their own tariffs and move booking into a modal',()=>{
+  run("SETTINGS.deliveryTariff={base:250,rate:100,waitRate:10,nightPercent:20};SETTINGS.scheduleTariff={base:300,rate:120,waitRate:12,nightPercent:25};totalMeters=2000");
+  run("setMode('delivery')");assert.equal(run('calcFare()'),350);
+  run("setMode('schedule')");assert.equal(run('calcFare()'),420);assert.equal(els['booking-modal'].style.display,'flex');
+  run("setMode('auto')");assert.equal(els['booking-modal'].style.display,'none');run('totalMeters=0');
+ });
+ await t.test('Receipt drop address uses final GPS for Auto and selected destinations for other modes',async()=>{
+  run("currentMode='auto';currentDestinationAddress='Ignored Auto Destination';currentLocationAddress='';lastGeocodedLat=null;lastGeocodedLon=null");
+  assert.equal(await run('resolveReceiptDropAddress(6.9,79.8)'),'QA location');
+  for(const mode of ['gps','manual','delivery','schedule']){
+   run(`currentMode='${mode}';currentDestinationAddress='${mode} selected drop'`);
+   assert.equal(await run('resolveReceiptDropAddress(6.91,79.81)'),mode+' selected drop');
+  }
+  const fetchBefore=ctx.fetch;ctx.fetch=async url=>{if(String(url).includes('nominatim'))throw Error('QA offline');return fetchBefore(url);};
+  run("currentMode='auto';currentLocationAddress='Cached final address';lastGeocodedLat=6.9;lastGeocodedLon=79.8");
+  assert.equal(await run('resolveReceiptDropAddress(6.9005,79.8005)'),'Cached final address');ctx.fetch=fetchBefore;
+  run("currentDestinationAddress='';currentLocationAddress='';lastGeocodedLat=null;lastGeocodedLon=null");
+ });
+ await t.test('Road estimate, fare comparison and GPS gap recovery protect billable distance',async()=>{
+  const realFetch=ctx.fetch;
+  ctx.fetch=async url=>{
+   if(String(url).includes('nominatim'))return {ok:true,json:async()=>[{lat:'6.91',lon:'79.81'}]};
+   if(String(url).includes('router.project-osrm.org'))return {ok:true,json:async()=>({routes:[{distance:1500,duration:420}]})};
+   return realFetch(url);
+  };
+  run("currentMode='auto';currentLat=6.9;currentLng=79.8;currentDestinationAddress='QA destination';selectedDestinationPoint=null;totalMeters=0");
+  assert.equal(await run('refreshRouteEstimate(true)'),true);assert.equal(run('estimatedDistanceMeters'),1500);assert.equal(els['estimated-distance-value'].textContent,'1.50 km');
+  await run("recoverGapDistance({lat:6.9,lng:79.8},{lat:6.91,lng:79.8},120000)");
+  assert.equal(run('totalMeters'),1500);assert.equal(run('gpsGapCount'),1);assert.equal(run('recoveredMeters'),1500);
+  ctx.fetch=realFetch;run("estimatedDistanceMeters=0;estimatedDurationSeconds=0;estimateBaselineMeters=0;recoveredMeters=0;gpsGapCount=0;totalMeters=0");
+ });
+ await t.test('Full Route Manager adds, reorders and navigates through multiple stops',async()=>{
+  const realFetch=ctx.fetch;ctx.fetch=async url=>String(url).includes('nominatim')?{ok:true,json:async()=>[{lat:'6.92',lon:'79.82'}]}:String(url).includes('router.project-osrm.org')?{ok:true,json:async()=>({routes:[{distance:6200,duration:1200}]})}:realFetch(url);
+  run("currentLat=6.9;currentLng=79.8;currentDestinationAddress='';routeStops=[];routeStopPoints={};openRouteManager()");
+  els['route-new-stop'].value='Stop One';run('addRouteStop()');els['route-new-stop'].value='Stop Two';run('addRouteStop()');run('moveRouteStop(1,-1)');
+  assert.deepEqual(Array.from(run('routeStops')),['Stop Two','Stop One']);els['route-final-destination'].value='Final Place';await run('saveRouteManager()');
+  assert.equal(run('estimatedDistanceMeters'),6200);assert.match(els['route-summary'].textContent,/6\.20 km/);
+  let opened;ctx.window.open=url=>{opened=new URL(url);};run('openPhoneNavigation()');assert.equal(opened.searchParams.get('waypoints'),'Stop Two|Stop One');assert.equal(opened.searchParams.get('destination'),'Final Place');
+  ctx.fetch=realFetch;run("routeStops=[];routeStopPoints={};currentDestinationAddress='';selectedDestinationPoint=null;estimatedDistanceMeters=0");
+ });
+ await t.test('Final drop retries reverse geocoding when the first request fails',async()=>{
+  const realFetch=ctx.fetch;
+  let attempts=0;ctx.fetch=async url=>{if(String(url).includes('nominatim')&&++attempts===1)throw Error('first request offline');if(String(url).includes('nominatim'))return {ok:true,json:async()=>({display_name:'Narahenpita, Colombo, Sri Lanka'})};return realFetch(url);};
+  assert.match(await run('resolveFinalAddress(6.89,79.88)'),/Narahenpita.*Colombo/);assert.equal(attempts,2);ctx.fetch=realFetch;
+ });
+ await t.test('GPS, Manual and Delivery replace coordinate placeholders with a pickup address',async()=>{
+  ctx.navigator.geolocation={getCurrentPosition(cb){cb({coords:{latitude:6.895228,longitude:79.882614,accuracy:8}});}};
+  for(const mode of ['gps','manual','delivery']){
+   run(`currentMode='${mode}';sTime=null;document.getElementById('start-loc').value='GPS: 6.895228, 79.882614 (address unavailable)'`);
+   assert.equal(await run('refreshPickupFromGPS()'),'QA location');assert.equal(els['start-loc'].value,'QA location');
+  }
+  delete ctx.navigator.geolocation;
+ });
+ await t.test('Fresh final GPS acquisition disables cached browser positions',async()=>{
+  let options;ctx.navigator.geolocation={getCurrentPosition(cb,_fail,value){options=value;cb({coords:{latitude:6.91,longitude:79.89,accuracy:6}});}};
+  const pos=await run('acquireFreshPosition(7000)');assert.equal(pos.coords.latitude,6.91);assert.equal(options.maximumAge,0);assert.equal(options.timeout,7000);delete ctx.navigator.geolocation;
+ });
+ await t.test('Accepted GPS path is bounded and jump points do not move the public vehicle',()=>{
+  run('ridePath=[]');assert.equal(run('appendRidePath(6.9,79.8)'),true);assert.equal(run('appendRidePath(6.9001,79.8)'),true);
+  assert.equal(run('appendRidePath(7.5,80.5)'),false);assert.equal(run('ridePath.length'),2);
+  ctx.L={latLng:(lat,lng)=>({lat,lng})};run('passengerHasFix=false;passengerMarker={getLatLng(){return {lat:6.9,lng:79.8}},setLatLng(value){globalThis.__point=value}};passengerMap={setView(){},panTo(){},getBounds(){return {pad(){return {contains(){return true}}}}}};movePassengerMarkerSmooth(6.9001,79.8001)');const point=run('globalThis.__point');assert.equal(Number(point.lat),6.9001);assert.equal(Number(point.lng),79.8001);delete ctx.L;
+ });
+ await t.test('Road matching snaps the blue display path without replacing fare GPS points',async()=>{
+  const realFetch=ctx.fetch;ctx.fetch=async url=>String(url).includes('/match/v1/driving/')?{ok:true,json:async()=>({matchings:[{geometry:{coordinates:[[79.8,6.9],[79.8002,6.9002]]}}]})}:realFetch(url);
+  run('ridePath=[[6.9,79.8],[6.9001,79.8001]];roadSnappedPath=[];lastRoadSnapTime=0');assert.equal(await run('refreshRoadSnappedPath(true)'),true);
+  assert.deepEqual(Array.from(run('displayRidePath()'),point=>Array.from(point)),[[6.9,79.8],[6.9002,79.8002]]);assert.deepEqual(Array.from(run('ridePath'),point=>Array.from(point)),[[6.9,79.8],[6.9001,79.8001]]);ctx.fetch=realFetch;
+ });
  await t.test('All five ride modes and Settings submenus remain callable',()=>{
-  for(const mode of ['auto','gps','manual','delivery','booking'])run(`setMode('${mode}')`);
+  for(const mode of ['auto','gps','manual','delivery','schedule'])run(`setMode('${mode}')`);
   for(const action of ['openLogin','openAppSettings','openFuelLogModal','openRepairLogModal','openReportsMenu','openDriverApp','openDatabaseBackupModal','openSystemLogModal'])run(action+'()');
+ });
+ await t.test('Header calendar opens saved schedules without opening registration',()=>{
+  els['schedule-manager-modal'].style.display='none';els['booking-modal'].style.display='none';
+  run('openScheduleManager()');
+  assert.equal(els['schedule-manager-modal'].style.display,'flex');
+  assert.equal(els['booking-modal'].style.display,'none');
+ });
+ await t.test('Manual, Delivery and Schedule retain manual controls and live GPS without changing distance',()=>{
+  for(const mode of ['manual','delivery','schedule']){
+   run(`setMode('${mode}')`);assert.equal(els['manual-controls'].style.display,'block');assert.equal(els.startBtn.disabled,false);
+   let callback;ctx.navigator.geolocation={watchPosition(cb){callback=cb;return 5;},clearWatch(){}};
+   run('sTime=new Date();totalMeters=3500;trackRide()');
+   callback({coords:{latitude:6.9,longitude:79.8,accuracy:5}});callback({coords:{latitude:6.901,longitude:79.8,accuracy:5}});
+   assert.equal(run('totalMeters'),3500);assert.equal(run('currentLat'),6.901);run('sTime=null;totalMeters=0;watchId=null');
+  }delete ctx.navigator.geolocation;run('currentLat=null;currentLng=null');
  });
  await t.test('Fuel and repair entries save to the account',async()=>{
   Object.assign(els['fuel-date'],{value:'2026-09-11'});els['fuel-liters'].value='3';els['fuel-price'].value='300';run('addFuelLog()');
@@ -53,8 +148,8 @@ test('Frontend, session adapter and database integration',async t=>{
  await t.test('Manual trip is durably saved',async()=>{run("setMode('manual')");els['start-loc'].value='Test pickup';els['end-loc'].value='Test drop';els['manual-km-input'].value='2';await run('startRide()');await ctx.cloudStore.flush();const s=await ctx.cloudStore.request('/state');assert.equal(JSON.parse(s.data.amt_ride_state).totalMeters,2000);});
  await t.test('Ride Start automatically opens a usable passenger link without visiting Settings',async()=>{
   assert.equal(els['share-location'].checked,true);assert.equal(els['trackingPopupModal'].style.display,'flex');
-  const link=new URL(els['trackingLinkDisplay'].textContent);assert.match(link.searchParams.get('track'),/^[a-f0-9]{64}$/);
-  const response=await fetch(ctx.window.AMT_CONFIG.apiBase+'/api/track/'+link.searchParams.get('track'));
+  const link=new URL(els['trackingLinkDisplay'].textContent);assert.match(link.searchParams.get('t'),/^[a-f0-9]{64}$/);
+  const response=await fetch(ctx.window.AMT_CONFIG.apiBase+'/api/track/'+link.searchParams.get('t'));
   assert.equal(response.status,200);assert.equal((await response.json()).status,'waiting');
   let qr;ctx.QRCode=function(container,options){qr=options;};await run('showTrackingPopup()');assert.equal(qr.text,els['trackingLinkDisplay'].textContent);
   assert.equal(els['nav-container'].classList.contains('hidden'),false);
@@ -78,7 +173,7 @@ test('Frontend, session adapter and database integration',async t=>{
  await t.test('Auto ride shows Navigate and passenger receives coordinates without signing in',async()=>{
   els['end-loc'].value='';run("setMode('auto');gpsReady=true;currentLocationAddress='QA pickup';currentDestinationAddress='';currentLat=6.9;currentLng=79.8");
   await run('startRide()');assert.equal(els['nav-container'].classList.contains('hidden'),false);
-  const share=new URL(els['trackingLinkDisplay'].textContent).searchParams.get('track');
+  const share=new URL(els['trackingLinkDisplay'].textContent).searchParams.get('t');
   const response=await fetch(ctx.window.AMT_CONFIG.apiBase+'/api/track/'+share);const payload=await response.json();
   assert.equal(response.status,200);assert.equal(payload.lat,6.9);assert.equal(payload.mode,'auto');
   let opened;ctx.window.open=url=>{opened=new URL(url);};run('openPhoneNavigation()');
@@ -86,6 +181,6 @@ test('Frontend, session adapter and database integration',async t=>{
   els['end-loc'].value='QA drop';run('openPhoneNavigation()');assert.equal(opened.pathname,'/maps/dir/');assert.equal(opened.searchParams.get('destination'),'QA drop');
   await ctx.cloudStore.flush();
  });
- await t.test('Concurrent modification pauses sync rather than overwriting',async()=>{const s=await ctx.cloudStore.request('/state');await ctx.cloudStore.request('/state',{method:'PUT',headers:{'If-Match':String(s.version)},body:JSON.stringify(s.data)});ctx.cloudStore.setItem('system_logs','[]');await assert.rejects(ctx.cloudStore.flush(),/Another session/);assert(ctx.cloudStore.dirty);});
+ await t.test('Concurrent modification rebases and retries without losing the active session',async()=>{const s=await ctx.cloudStore.request('/state');await ctx.cloudStore.request('/state',{method:'PUT',headers:{'If-Match':String(s.version)},body:JSON.stringify(s.data)});ctx.cloudStore.setItem('system_logs','[]');await ctx.cloudStore.flush();assert.equal(ctx.cloudStore.dirty,false);});
  }finally{await new Promise(resolve=>app.server.close(resolve));}
 });

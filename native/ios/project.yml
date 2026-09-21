@@ -1,0 +1,32 @@
+name: TaxiDriver
+options:
+  xcodeVersion: '15.4'
+  bundleIdPrefix: com.sparkles
+  deploymentTarget:
+    iOS: '16.0'
+targets:
+  TaxiDriver:
+    type: application
+    platform: iOS
+    sources: [TaxiDriver]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sparkles.taxidriver
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: Record taxi distance and share the active ride with your passenger.
+        INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription: Continue recording your active ride when the screen is locked.
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: Listen for driver voice commands.
+        INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: Recognize taxi control commands.
+        INFOPLIST_KEY_UIBackgroundModes: location
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        SWIFT_VERSION: '5.0'
+        MARKETING_VERSION: '0.7.0'
+        CURRENT_PROJECT_VERSION: '8'
+    info:
+      path: GeneratedInfo.plist
+      properties:
+        UIBackgroundModes: [location]
+        NSLocationWhenInUseUsageDescription: Record taxi distance and share the active ride with your passenger.
+        NSLocationAlwaysAndWhenInUseUsageDescription: Continue recording an active ride while the screen is locked.
+        NSMicrophoneUsageDescription: Listen for driver voice commands.
+        NSSpeechRecognitionUsageDescription: Recognize taxi control commands.

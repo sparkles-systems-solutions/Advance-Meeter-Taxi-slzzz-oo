@@ -130,8 +130,10 @@ let paymentSaving=false, settingsSaving=false;
     }
 
     // ========== Voice Command Support System ==========
+    const VOICE_CONTROL_ENABLED = false;
     let voiceActive = false, recognition = null;
     function initVoiceRecognition() {
+        if (!VOICE_CONTROL_ENABLED) return false;
         if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
             document.getElementById('voiceStatus').innerHTML = '❌ Voice engine not supported';
             return false;
@@ -165,25 +167,20 @@ let paymentSaving=false, settingsSaving=false;
         return true;
     }
     
-    function toggleVoiceCommand() {
-        if (!voiceActive) {
-            if (!recognition && !initVoiceRecognition()) return;
-            try {
-                recognition.start();
-                voiceActive = true;
-                document.getElementById('voiceBtn').innerHTML = '🎤 LISTENING...';
-                document.getElementById('voiceStatus').innerHTML = '🔴 සක්‍රීය හඬ හඳුනාගැනීම...';
-                showToast('Voice Command Engine Activated', 'success');
-            } catch(e) {
-                showToast('Mic Access Authorization Failed', 'error');
-            }
-        } else {
-            if (recognition) recognition.stop();
-            voiceActive = false;
-            document.getElementById('voiceBtn').innerHTML = '🎤 VOICE CONTROL (OFF)';
-            document.getElementById('voiceStatus').innerHTML = '⚪ සක්‍රීය කිරීමට ක්ලික් කරන්න';
-            showToast('Voice Commands Deactivated', 'info');
+    async function toggleVoiceCommand() {
+        if (!VOICE_CONTROL_ENABLED) { showToast('Voice Control is currently disabled.', 'info'); return; }
+        if(window.nativeMeter?.supported){
+            const btn=document.getElementById('voiceBtn'),status=document.getElementById('voiceStatus');
+            btn.disabled=true;btn.innerHTML='🎤 LISTENING...';status.textContent='Speak a command now';
+            try{const result=await window.nativeMeter.call('voice',{language:SETTINGS.language==='en'?'en-US':'en-US'});const text=String(result.transcript||'').toLowerCase().trim();status.textContent=text?'Recognized: '+text:'No command heard';if(text)processVoiceCommand(text);}
+            catch(e){status.textContent=e.message;showToast('Voice command failed: '+e.message,'error');}
+            finally{btn.disabled=false;btn.innerHTML='🎤 VOICE CONTROL';}return;
         }
+        if(!voiceActive){
+            if(!recognition&&!initVoiceRecognition())return;
+            try{recognition.start();voiceActive=true;document.getElementById('voiceBtn').innerHTML='🎤 LISTENING...';document.getElementById('voiceStatus').innerHTML='🔴 Listening for a command...';}
+            catch(e){showToast('Allow microphone permission and try again.','error');}
+        }else{if(recognition)recognition.stop();voiceActive=false;document.getElementById('voiceBtn').innerHTML='🎤 VOICE CONTROL (OFF)';document.getElementById('voiceStatus').innerHTML='Tap to enable';}
     }
     
     function processVoiceCommand(cmd) {
@@ -203,13 +200,60 @@ let paymentSaving=false, settingsSaving=false;
     }
 
     // ========== STREAMING_CHUNK: Core State Initializations & Expanded Modals ==========
-    let sTime = null, watchId = null, totalMeters = 0, lastLat = null, lastLon = null, currentLat = null, currentLng = null, currentRID = "", nightActive = false, gpsReady = false, currentMode = "auto", pendingRideData = null, selectedMethod = "cash", currentLocationAddress = "", currentLocationLat = null, currentLocationLon = null, startLocationAddress = "", currentDestinationAddress = "", mapObj = null, mapMarker = null, mapPickerField = null, currentTrackingId = null;
-    let deliveryPickupName="", deliveryPickupPhone="", deliveryDeliveryName="", deliveryDeliveryPhone="";
-    let SETTINGS = { base: 100, rate: 80, waitRate: 5, nightPercent: 10, appName: "ADVANCE MEETER TAXI", receiptName: "AMT OFFICIAL RECEIPT", logo: null };
+    let sTime = null, watchId = null, totalMeters = 0, lastLat = null, lastLon = null, currentLat = null, currentLng = null, currentRID = "", nightActive = false, gpsReady = false, currentMode = "auto", pendingRideData = null, selectedMethod = "cash", currentLocationAddress = "", currentLocationLat = null, currentLocationLon = null, lastGeocodedLat = null, lastGeocodedLon = null, startLocationAddress = "", currentDestinationAddress = "", mapObj = null, mapMarker = null, mapPickerField = null, currentTrackingId = null;
+    let ridePath = [], roadSnappedPath = [], roadSnapBusy = false, lastRoadSnapTime = 0, lastResolvedAddress = { lat: null, lng: null, address: '' };
+    const MAX_RIDE_PATH_POINTS = 160;
+    const ROAD_SNAP_INTERVAL_MS = 30000;
+    const MAX_GAP_ROUTE_RATIO = 2.5;
+    const MAX_GAP_CORRECTION_METERS = 2000;
+    let deliveryPickupName="", deliveryPickupPhone="", deliveryDeliveryName="", deliveryDeliveryPhone="", routeStops=[], routeStopPoints={}, routeRevision=0, routeDraftDestinationPoint=null, routeDraftDestinationAddress='';
+    let selectedPickupPoint=null, selectedDestinationPoint=null, estimatedDistanceMeters=0, estimatedDurationSeconds=0, estimateBaselineMeters=0;
+    let recoveredMeters=0, gpsGapCount=0, gpsQualityState='waiting', gapRecoveryBusy=false;
+    let SETTINGS = { base: 100, rate: 80, waitRate: 5, nightPercent: 10, deliveryTariff:{base:100,rate:80,waitRate:5,nightPercent:10}, scheduleTariff:{base:100,rate:80,waitRate:5,nightPercent:10}, appName: "ADVANCE MEETER TAXI", receiptName: "AMT OFFICIAL RECEIPT", logoData: "", address: "", businessMobile: "", email: "", website: "", receiptFooter: "Thank you for riding with us!", language: "bi", linkDays: 30 };
     let currentReportType = "daily";
-    let passengerMap = null, passengerMarker = null;
+    const LIVE_TRACKING_POLL_MS = 5000;
+    const LIVE_TRACKING_ANIMATION_MS = 4200;
+    let passengerMap = null, passengerMarker = null, passengerPathLine = null;
+    let passengerAnimationFrame = null, passengerHasFix = false;
     let latestPassengerPayload = null;
-    let driverPopupMap = null, driverPopupMarker = null;
+    let driverPopupMap = null, driverPopupMarker = null, driverPopupPathLine = null;
+    function addFreeMapTiles(map) {
+        if(typeof L.maplibreGL==='function'){
+            return L.maplibreGL({style:'https://tiles.openfreemap.org/styles/liberty'}).addTo(map);
+        }
+        return L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+    }
+    function applyLanguage() {
+        const language=SETTINGS.language==='en'?'en':'bi';
+        document.documentElement.lang=language==='en'?'en':'si';
+        document.body.classList.toggle('lang-english',language==='en');
+        document.querySelectorAll('[data-en][data-bi]').forEach(el=>{el.textContent=el.dataset[language];});
+        document.querySelectorAll('[data-placeholder-en][data-placeholder-bi]').forEach(el=>{el.placeholder=el.dataset[`placeholder${language==='en'?'En':'Bi'}`];});
+    }
+    function previewLanguage(value){SETTINGS.language=value==='en'?'en':'bi';applyLanguage();}
+    function renderBusinessIdentity() {
+        document.getElementById('display-app-name').innerHTML=escapeHTML(SETTINGS.appName).replace(/\s+/,"<br>");
+        const logo=document.getElementById('main-logo-area');
+        logo.innerHTML=SETTINGS.logoData?`<img alt="" src="${SETTINGS.logoData}" class="w-full h-full object-contain rounded-xl">`:'🚕';
+        const preview=document.getElementById('set-logo-preview');
+        preview.hidden=!SETTINGS.logoData;if(SETTINGS.logoData)preview.src=SETTINGS.logoData;
+        applyLanguage();
+    }
+    function clearBusinessLogo(){SETTINGS.logoData='';renderBusinessIdentity();}
+    function handleLogoUpload(input) {
+        const file=input.files?.[0];if(!file)return;
+        if(!/^image\/(png|jpeg|webp)$/.test(file.type)||file.size>5*1024*1024){showToast('Choose a PNG, JPEG or WebP logo below 5 MB.','error');input.value='';return;}
+        const reader=new FileReader();reader.onerror=()=>showToast('Logo could not be read.','error');reader.onload=()=>{
+            const image=new Image();image.onerror=()=>showToast('Invalid logo image.','error');image.onload=()=>{
+                const scale=Math.min(1,512/Math.max(image.width,image.height)),canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(image.width*scale));canvas.height=Math.max(1,Math.round(image.height*scale));
+                canvas.getContext('2d').drawImage(image,0,0,canvas.width,canvas.height);const data=canvas.toDataURL('image/jpeg',.78);
+                if(data.length>220000){showToast('Logo remains too large. Choose a simpler image.','error');return;}SETTINGS.logoData=data;renderBusinessIdentity();
+            };image.src=reader.result;
+        };reader.readAsDataURL(file);
+    }
     
     // Track execution of a loaded schedule booking
     let activeBookingId = null; 
@@ -308,9 +352,12 @@ let paymentSaving=false, settingsSaving=false;
             cloudStore.setItem('amt_ride_state', JSON.stringify({
                 isRideActive: true, startTime: sTime, totalMeters, lastLat, lastLon, currentMode, nightActive, startLocationAddress, currentLocationAddress, gpsReady: true, destinationAddress: currentDestinationAddress, trackingId: currentTrackingId,
                 deliveryPickupName, deliveryPickupPhone, deliveryDeliveryName, deliveryDeliveryPhone,
-                activeBookingId, activeBookingManualFare, sharingEnabled:document.getElementById('share-location').checked, trackingShareToken,
-                form: Object.fromEntries(['mobile','wait-select','discount-input','manual-fare','start-loc','end-loc','pickup-name','pickup-phone','delivery-name','delivery-phone'].map(id => [id, document.getElementById(id).value]))
+                activeBookingId, activeBookingManualFare, routeStops, routeStopPoints, routeRevision, sharingEnabled:document.getElementById('share-location').checked, trackingShareToken,
+                selectedPickupPoint, selectedDestinationPoint, estimatedDistanceMeters, estimatedDurationSeconds, estimateBaselineMeters,
+                recoveredMeters, gpsGapCount, gpsQualityState, ridePath: sanitizedRidePath(), roadSnappedPath: sanitizedRidePath(roadSnappedPath),
+                form: Object.fromEntries(['customer-name','customer-email','mobile','wait-select','discount-input','manual-fare','start-loc','end-loc','pickup-name','pickup-phone','delivery-name','delivery-phone'].map(id => [id, document.getElementById(id).value]))
             }));
+            configureNativeMeter();
             broadcastOdometerTelemetry();
         }
     }
@@ -318,9 +365,12 @@ let paymentSaving=false, settingsSaving=false;
     // ========== Peer-to-Peer Telemetry Broadcast Engine ==========
     async function broadcastOdometerTelemetry(forceStatus='active') {
         if (!trackingShareToken || !Number.isFinite(currentLat) || !Number.isFinite(currentLng)) return;
-        try { await cloudStore.request('/track/'+trackingShareToken,{method:'PUT',body:JSON.stringify({lat:currentLat,lng:currentLng,currentFare:calcFare(),distanceTraveled:(totalMeters/1000).toFixed(2),status:forceStatus,mode:currentMode})}); }
+        refreshRoadSnappedPath(forceStatus==='completed').catch(()=>{});
+        try { await cloudStore.request('/track/'+trackingShareToken,{method:'PUT',body:JSON.stringify({lat:currentLat,lng:currentLng,currentFare:calcFare(),distanceTraveled:(totalMeters/1000).toFixed(2),status:forceStatus,mode:currentMode,path:displayRidePath(),route:{destination:currentDestinationAddress,stops:routeStops,estimatedRemainingKm:estimatedDistanceMeters>0?Number((estimatedDistanceMeters/1000).toFixed(2)):null,revision:routeRevision}})}); }
         catch(e) { cloudStore.reportStatus('Tracking update failed: '+e.message); }
     }
+    function activeTariff(mode=currentMode){const custom=mode==='delivery'?SETTINGS.deliveryTariff:mode==='schedule'?SETTINGS.scheduleTariff:null;return custom&&['base','rate','waitRate','nightPercent'].every(k=>Number.isFinite(Number(custom[k])))?custom:SETTINGS;}
+    function receiptSettingsSnapshot(){const rate=activeTariff();return {...Object.fromEntries(['appName','receiptName','address','businessMobile','email','website','receiptFooter','language'].map(k=>[k,SETTINGS[k]??''])),...Object.fromEntries(['base','rate','waitRate','nightPercent'].map(k=>[k,Number(rate[k])||0]))};}
 
     function loadRideState() {
         let saved = cloudStore.getItem('amt_ride_state');
@@ -356,7 +406,7 @@ let paymentSaving=false, settingsSaving=false;
             currentLocationAddress = state.currentLocationAddress || "";
             currentDestinationAddress = state.destinationAddress || "";
             currentTrackingId = state.trackingId || null;
-            trackingShareToken = state.sharingEnabled && /^[a-f0-9]{64}$/.test(state.trackingShareToken||'') ? state.trackingShareToken : null;
+            trackingShareToken = state.sharingEnabled && /^(?:[A-Za-z0-9_-]{24}|[a-f0-9]{64})$/.test(state.trackingShareToken||'') ? state.trackingShareToken : null;
             document.getElementById('share-location').checked = Boolean(trackingShareToken);
             deliveryPickupName = state.deliveryPickupName || "";
             deliveryPickupPhone = state.deliveryPickupPhone || "";
@@ -364,22 +414,30 @@ let paymentSaving=false, settingsSaving=false;
             deliveryDeliveryPhone = state.deliveryDeliveryPhone || "";
             activeBookingId = state.activeBookingId || null;
             activeBookingManualFare = state.activeBookingManualFare || null;
-            gpsReady = currentMode === 'manual';
+            routeStops = Array.isArray(state.routeStops) ? state.routeStops.slice(0,5) : [];
+            routeStopPoints = state.routeStopPoints && typeof state.routeStopPoints === 'object' ? state.routeStopPoints : {};
+            routeRevision = Math.max(0, Number(state.routeRevision) || 0);
+            selectedPickupPoint = validRoadPoint(state.selectedPickupPoint) ? state.selectedPickupPoint : null;
+            selectedDestinationPoint = validRoadPoint(state.selectedDestinationPoint) ? state.selectedDestinationPoint : null;
+            estimatedDistanceMeters = Math.max(0, Number(state.estimatedDistanceMeters) || 0);
+            estimatedDurationSeconds = Math.max(0, Number(state.estimatedDurationSeconds) || 0);
+            estimateBaselineMeters = Math.max(0, Number(state.estimateBaselineMeters) || 0);
+            recoveredMeters = Math.max(0, Number(state.recoveredMeters) || 0);
+            gpsGapCount = Math.max(0, Number(state.gpsGapCount) || 0);
+            gpsQualityState = String(state.gpsQualityState || 'restored');
+            ridePath = sanitizedRidePath(state.ridePath);
+            roadSnappedPath = sanitizedRidePath(state.roadSnappedPath);
+            gpsReady = usesManualDistance();
             lastLat = null; lastLon = null;
             
             setMode(currentMode);
             startRideStatusMonitoring();
             document.getElementById('active-ride-banner').classList.remove('hidden');
-            let nightBtn = document.getElementById('nightBtn');
-            if (nightActive) {
-                nightBtn.innerHTML = '🌙 NIGHT ON';
-            } else {
-                nightBtn.innerHTML = '🌙 NIGHT OFF';
-            }
+            renderNightButton();
             
             updateDisplay();
             if (currentMode === 'auto' && currentLocationAddress) document.getElementById('current-location-address').textContent = currentLocationAddress;
-            if (currentMode === 'manual') document.getElementById('manual-km-input').value = (totalMeters/1000).toFixed(2);
+            if (usesManualDistance()) document.getElementById('manual-km-input').value = (totalMeters/1000).toFixed(2);
             if (currentMode === 'delivery') {
                 document.getElementById('pickup-name').value = deliveryPickupName;
                 document.getElementById('pickup-phone').value = deliveryPickupPhone;
@@ -397,7 +455,6 @@ let paymentSaving=false, settingsSaving=false;
                 trackRide();
                 document.getElementById('nav-container').classList.remove('hidden');
                 startTrackingUpdates();
-                openDriverMapPopup();
             }
             
             document.getElementById('restore-banner').classList.add('hidden');
@@ -413,15 +470,19 @@ let paymentSaving=false, settingsSaving=false;
     }
 
     // ========== GEOLOCATION LOGIC (GPS LOGIC) ==========
+    function usesManualDistance() { return ['manual','delivery','schedule'].includes(currentMode); }
+
+    let gpsAttempt = 0;
     function startGPS() {
-        if (currentMode === 'manual' || sTime) return;
+        if (usesManualDistance() || sTime) return;
         if (!navigator.geolocation) {
             document.getElementById('gps-status').textContent = 'GPS unavailable — use Manual mode';
             return;
         }
-        showLoading(true);
-        navigator.geolocation.getCurrentPosition(pos => {
-            if (currentMode === 'manual' || sTime) { showLoading(false); return; }
+        const attempt = ++gpsAttempt;
+        document.getElementById('gps-status').textContent = 'Finding GPS…';
+        navigator.geolocation.getCurrentPosition(async pos => {
+            if (attempt !== gpsAttempt || usesManualDistance() || sTime) return;
             let acc = pos.coords.accuracy;
             lastLat = pos.coords.latitude;
             lastLon = pos.coords.longitude;
@@ -431,6 +492,11 @@ let paymentSaving=false, settingsSaving=false;
                 gpsReady = true;
                 document.getElementById('gps-status').innerHTML = `✅ GPS Ready (${acc.toFixed(0)}m)`;
                 document.getElementById('startBtn').disabled = false;
+                if (currentMode === 'gps') {
+                    const field = document.getElementById('start-loc');
+                    if (!field.value.trim()) { field.value = getSriLankaFallbackAddress(lastLat,lastLon); startLocationAddress = field.value; }
+                    await resolvePickupAddress(lastLat,lastLon);
+                }
                 if (currentMode === 'auto') {
                     currentLocationLat = lastLat;
                     currentLocationLon = lastLon;
@@ -440,20 +506,43 @@ let paymentSaving=false, settingsSaving=false;
                 showToast('GPS Connectivity Stabilized', 'success');
             } else {
                 showLoading(false);
-                setTimeout(startGPS, 3000);
+                document.getElementById('gps-status').textContent = 'GPS accuracy low — tap location refresh outside';
             }
         }, err => {
             showLoading(false);
-            if (currentMode === 'manual' || sTime) return;
+            if (usesManualDistance() || sTime) return;
             document.getElementById('gps-status').innerHTML = '❌ GPS Permissions Required';
             document.getElementById('startBtn').disabled = true;
             showToast('GPS Location Permissions Blocked', 'error');
-            if (err.code !== 1) setTimeout(startGPS, 5000);
+            document.getElementById('gps-status').textContent = err.code === 1 ? 'Allow location permission, then tap refresh' : 'GPS unavailable — tap refresh to retry';
         }, { enableHighAccuracy: true, timeout: 15000 });
     }
 
+    async function syncNativeMeter() {
+        if (!window.nativeMeter?.supported || !sTime) return;
+        const state = await window.nativeMeter.call('snapshot');
+        if (state.rideId !== sTime.toISOString()) return;
+        if (!usesManualDistance() && Number.isFinite(state.meters)) totalMeters = state.meters;
+        if (Number.isFinite(state.lat) && Number.isFinite(state.lng) && appendRidePath(state.lat,state.lng)) { currentLat=state.lat; currentLng=state.lng; updateDriverPopupMarker(currentLat,currentLng); }
+        currentGPSAccuracy=Math.max(0,Number(state.accuracy)||0);
+        recoveredMeters=Math.max(recoveredMeters,Number(state.recoveredMeters)||0);
+        gpsGapCount=Math.max(gpsGapCount,Number(state.gapCount)||0);
+        gpsQualityState=state.gap?'recovering':gpsQualityFromAccuracy(currentGPSAccuracy);
+        const status=document.getElementById('gps-status');
+        status.textContent=state.gap?'GPS gap recovery active':`Native GPS · ${Math.round(currentGPSAccuracy)}m · ${gpsQualityLabel()}`;
+        updateDisplay();saveRideState();
+    }
+    function configureNativeMeter() {
+        if (!window.nativeMeter?.supported || !sTime) return;
+        cloudStore.configureNative({share:document.getElementById('share-location').checked?trackingShareToken:'',rates:activeTariff(),mode:currentMode,manualMeters:totalMeters,manualFare:Math.max(0,Number(document.getElementById('manual-fare').value)||0),wait:Number(document.getElementById('wait-select').value)||0,discount:Math.max(0,Number(document.getElementById('discount-input').value)||0),night:nightActive,route:{destination:currentDestinationAddress,stops:routeStops,estimatedRemainingKm:estimatedDistanceMeters>0?Number((estimatedDistanceMeters/1000).toFixed(2)):null,revision:routeRevision}}).catch(e=>cloudStore.reportStatus(e.message));
+    }
+
     function trackRide() {
-        if (currentMode === "manual" || !navigator.geolocation) return;
+        if (window.nativeMeter?.supported) {
+            window.nativeMeter.call('start',{rideId:sTime.toISOString(),meters:totalMeters,metered:!usesManualDistance()}).then(syncNativeMeter).catch(e=>showToast(e.message,'error'));
+            return;
+        }
+        if (!navigator.geolocation) return;
         if (watchId !== null) navigator.geolocation.clearWatch(watchId);
         watchId = navigator.geolocation.watchPosition(pos => {
             if (!sTime || rideEnding) return;
@@ -466,23 +555,34 @@ let paymentSaving=false, settingsSaving=false;
                 document.getElementById('gps-status').textContent = 'GPS accuracy low — distance paused';
                 return;
             }
-            document.getElementById('gps-status').textContent = `GPS ${Math.round(acc)}m`;
-            currentLat = lat;
-            currentLng = lon;
-            
+            currentGPSAccuracy=acc;
+            gpsQualityState=gpsQualityFromAccuracy(acc);
+            document.getElementById('gps-status').textContent = `GPS ${Math.round(acc)}m · ${gpsQualityLabel()}`;
             addGPSUpdate(lat, lon, acc);
-            
-            if (acc < 200 && currentMode === 'auto') {
-                reverseGeocode(lat, lon);
+            updateReliabilityPanel();
+
+            if (usesManualDistance()) {
+                if (!appendRidePath(lat, lon)) return;
+                currentLat = lat; currentLng = lon;
+                broadcastOdometerTelemetry(); updateDriverPopupMarker(lat,lon); return;
             }
-            
             if (lastLat !== null && lastLon !== null) {
+                const elapsed=lastUpdateTime?Date.now()-lastUpdateTime:0;
+                if(elapsed>30000){
+                    const from={lat:lastLat,lng:lastLon},to={lat,lng:lon};
+                    lastUpdateTime=Date.now();
+                    recoverGapDistance(from,to,elapsed).catch(()=>{});
+                    return;
+                }
                 const validation = isValidGPSUpdate(lat, lon, acc, lastLat, lastLon);
                 
                 if (validation.valid) {
                     const distance = calculateDistanceMeters(lastLat, lastLon, lat, lon);
                     
                     if (distance >= MIN_DISTANCE && distance <= MAX_DISTANCE) {
+                        if (!appendRidePath(lat,lon)) return;
+                        currentLat = lat;
+                        currentLng = lon;
                         totalMeters += distance;
                         lastLat = lat;
                         lastLon = lon;
@@ -490,6 +590,7 @@ let paymentSaving=false, settingsSaving=false;
                         updateDisplay();
                         saveRideState();
                         updateDriverPopupMarker(lat, lon);
+                        if (currentMode === 'auto') reverseGeocode(lat, lon);
                         
                         const avgAccuracy = getAverageGPSAccuracy();
                         if (acc > 40) {
@@ -498,45 +599,133 @@ let paymentSaving=false, settingsSaving=false;
                     }
                 } else {
                     console.warn('GPS validation failed: ' + validation.reason);
-                    if (Date.now() - lastUpdateTime > 30000 && calculateDistanceMeters(lastLat,lastLon,lat,lon) > MAX_DISTANCE) {
-                        lastLat=lat; lastLon=lon; lastUpdateTime=Date.now();
-                        showToast('GPS resumed after a gap. Please review the unmeasured distance.', 'warning');
-                    }
+                    if (Date.now() - lastUpdateTime > 30000) gpsQualityState='recovering';
                 }
             } else {
+                appendRidePath(lat,lon);
+                currentLat = lat;
+                currentLng = lon;
                 lastLat = lat;
                 lastLon = lon;
                 lastUpdateTime = Date.now();
+                updateDriverPopupMarker(lat,lon);
+                if (currentMode === 'auto') reverseGeocode(lat,lon);
             }
             
-            if (mapMarker && mapObj) {
-                updateDriverPopupMarker(lat, lon);
+            if (mapMarker && mapObj && Number.isFinite(currentLat) && Number.isFinite(currentLng)) {
+                updateDriverPopupMarker(currentLat, currentLng);
             }
             
         }, () => { document.getElementById('gps-status').textContent = 'GPS signal lost — waiting to reconnect'; }, { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 });
     }
 
     let lastGeocodeTime = 0;
+    function isResolvedAddress(value) {
+        const address=String(value||'').trim();
+        return Boolean(address&&!/^GPS:/i.test(address)&&!/address unavailable|location unavailable/i.test(address));
+    }
+    async function requestReverseAddress(lat, lon) {
+        const attempts = [
+            `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1&accept-language=en&countrycodes=lk`,
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=16&addressdetails=1&accept-language=en&countrycodes=lk`
+        ];
+        for (const url of attempts) {
+            try {
+                const response = await fetchWithTimeout(url, { headers: { "Accept-Language": "en" }, cache: 'no-store' });
+                const data = await response.json();
+                if (typeof data?.display_name === 'string' && data.display_name.trim()) return data.display_name.trim();
+            } catch (error) { console.warn('Reverse geocoder attempt unavailable', error); }
+        }
+        return '';
+    }
+
+    async function resolveFinalAddress(lat, lon) {
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return 'Location unavailable';
+        const resolved = await requestReverseAddress(lat, lon);
+        if (resolved) {
+            lastResolvedAddress = { lat, lng: lon, address: resolved };
+            currentLocationAddress = resolved;
+            return resolved;
+        }
+        if (lastResolvedAddress.address && Number.isFinite(lastResolvedAddress.lat) && Number.isFinite(lastResolvedAddress.lng)
+            && calculateDistanceMeters(lastResolvedAddress.lat, lastResolvedAddress.lng, lat, lon) <= 300) return lastResolvedAddress.address;
+        return getSriLankaFallbackAddress(lat, lon);
+    }
+
+    function acquireFreshPosition(timeout=7000) {
+        return new Promise((resolve,reject)=>{
+            if(typeof navigator.geolocation?.getCurrentPosition!=='function'){reject(new Error('Geolocation unavailable'));return;}
+            navigator.geolocation.getCurrentPosition(resolve,reject,{enableHighAccuracy:true,timeout,maximumAge:0});
+        });
+    }
+
+    async function resolvePickupAddress(lat,lon) {
+        if(!Number.isFinite(lat)||!Number.isFinite(lon))return '';
+        const field=document.getElementById('start-loc');
+        const before=String(field?.value||'').trim();
+        if(before&&isResolvedAddress(before))return before;
+        const address=await resolveFinalAddress(lat,lon);
+        if(field&&(!field.value.trim()||!isResolvedAddress(field.value))){field.value=address;startLocationAddress=address;}
+        return address;
+    }
+
+    async function refreshPickupFromGPS() {
+        if(typeof navigator.geolocation?.getCurrentPosition!=='function'||sTime||!['gps','manual','delivery'].includes(currentMode))return '';
+        const field=document.getElementById('start-loc');
+        if(field&&!field.value.trim())field.placeholder='Resolving current pickup address…';
+        try{
+            const pos=await acquireFreshPosition();
+            if(!['gps','manual','delivery'].includes(currentMode)||sTime)return '';
+            const lat=pos.coords.latitude,lon=pos.coords.longitude,acc=Number(pos.coords.accuracy)||0;
+            currentLat=lat;currentLng=lon;currentLocationLat=lat;currentLocationLon=lon;
+            if(acc<=MAX_ACCURACY){gpsReady=true;document.getElementById('gps-status').textContent=`✅ GPS Ready (${Math.round(acc)}m)`;}
+            return await resolvePickupAddress(lat,lon);
+        }catch(e){
+            console.warn('Pickup address refresh failed',e);
+            return '';
+        }finally{if(field)field.placeholder='Pickup location';}
+    }
     async function reverseGeocode(lat, lon) {
         if (Date.now() - lastGeocodeTime < 10000) return currentLocationAddress;
         lastGeocodeTime = Date.now();
-        if (!lat || !lon) return "Colombo, Sri Lanka";
-        try {
-            let res = await fetchWithTimeout(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&accept-language=en&countrycodes=lk`, {
-                headers: { "Accept-Language": "en" }
-            });
-            let data = await res.json();
-            currentLocationAddress = data.display_name || getSriLankaFallbackAddress(lat, lon);
-            document.getElementById('current-location-address').textContent = currentLocationAddress.substring(0, 80);
-            return currentLocationAddress;
-        } catch(e){
-            currentLocationAddress = getSriLankaFallbackAddress(lat, lon);
-            document.getElementById('current-location-address').textContent = currentLocationAddress.substring(0, 80);
-            return currentLocationAddress;
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return "Location unavailable";
+        const resolved = await requestReverseAddress(lat, lon);
+        currentLocationAddress = resolved || getSriLankaFallbackAddress(lat, lon);
+        if (resolved) {
+            lastResolvedAddress = { lat, lng: lon, address: resolved };
+            lastGeocodedLat=lat; lastGeocodedLon=lon;
         }
+        document.getElementById('current-location-address').textContent = currentLocationAddress.substring(0, 80);
+        return currentLocationAddress;
+    }
+
+    function selectedDropAddress() {
+        if(currentMode==='schedule')return String(currentDestinationAddress||document.getElementById('sch-end')?.value||'').trim();
+        return String(currentDestinationAddress||document.getElementById('end-loc')?.value||'').trim();
+    }
+
+    async function resolveReceiptDropAddress(lat,lon) {
+        const selected=selectedDropAddress();
+        if(currentMode!=='auto'&&selected)return selected;
+        if(Number.isFinite(lat)&&Number.isFinite(lon)){
+            const fresh=await requestReverseAddress(lat,lon);
+            if(isResolvedAddress(fresh)){
+                currentLocationAddress=fresh;lastGeocodedLat=lat;lastGeocodedLon=lon;
+                lastResolvedAddress={lat,lng:lon,address:fresh};return fresh;
+            }
+            if(isResolvedAddress(currentLocationAddress)&&Number.isFinite(lastGeocodedLat)&&Number.isFinite(lastGeocodedLon)){
+                const cachedDistance=calculateDistanceMeters(lastGeocodedLat,lastGeocodedLon,lat,lon);
+                if(cachedDistance<=300)return currentLocationAddress;
+            }
+            if(lastResolvedAddress.address&&Number.isFinite(lastResolvedAddress.lat)&&Number.isFinite(lastResolvedAddress.lng)
+                &&calculateDistanceMeters(lastResolvedAddress.lat,lastResolvedAddress.lng,lat,lon)<=300)return lastResolvedAddress.address;
+            return getSriLankaFallbackAddress(lat,lon);
+        }
+        return selected||'Unknown Drop Location';
     }
 
     function refreshCurrentLocation() {
+        if (!sTime && !usesManualDistance()) { startGPS(); return; }
         if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(pos => {
                 currentLat = pos.coords.latitude;
@@ -550,8 +739,10 @@ let paymentSaving=false, settingsSaving=false;
     function setMode(mode) {
         if (rideEnding || (sTime && mode !== currentMode)) { showToast('Finish the active ride before changing mode.', 'warning'); return; }
         if (!['auto','gps','manual','delivery','schedule'].includes(mode)) return;
+        gpsAttempt++;
         currentMode = mode;
-        if (!sTime && mode !== 'manual') { gpsReady = false; document.getElementById('startBtn').disabled = true; }
+        if(mode!=='schedule')closeM('booking-modal');
+        if (!sTime && !usesManualDistance()) { gpsReady = false; document.getElementById('startBtn').disabled = true; }
         ['auto','gps','manual','delivery','schedule'].forEach(m => {
             const btn = document.getElementById(`mode-${m}`);
             if (btn) {
@@ -580,6 +771,7 @@ let paymentSaving=false, settingsSaving=false;
             if (!sTime) startGPS();
             setupAutocomplete('start-loc', 'start-loc-suggestions');
             setupAutocomplete('end-loc', 'end-loc-suggestions');
+            refreshPickupFromGPS();
         } else if (mode === 'manual') {
             document.getElementById('auto-location-card').style.display = 'none';
             document.getElementById('location-fields').style.display = 'block';
@@ -590,31 +782,30 @@ let paymentSaving=false, settingsSaving=false;
             document.getElementById('startBtn').disabled = false;
             setupAutocomplete('start-loc', 'start-loc-suggestions');
             setupAutocomplete('end-loc', 'end-loc-suggestions');
+            refreshPickupFromGPS();
         } else if (mode === 'delivery') {
             document.getElementById('auto-location-card').style.display = 'none';
             document.getElementById('location-fields').style.display = 'block';
             document.getElementById('delivery-accordion').style.display = 'block';
-            document.getElementById('manual-controls').style.display = 'none';
-            if (!sTime) startGPS();
+            document.getElementById('manual-controls').style.display = 'block';
+            gpsReady = true; document.getElementById('startBtn').disabled = false;
             setupAutocomplete('start-loc', 'start-loc-suggestions');
             setupAutocomplete('end-loc', 'end-loc-suggestions');
+            refreshPickupFromGPS();
         } else if (mode === 'schedule') {
             // Expands booking scheduler accordion dynamically and focuses details
             document.getElementById('auto-location-card').style.display = 'none';
             document.getElementById('location-fields').style.display = 'block';
             document.getElementById('delivery-accordion').style.display = 'none';
-            document.getElementById('manual-controls').style.display = 'none';
+            document.getElementById('manual-controls').style.display = 'block';
             
-            // Expand Schedule accordion directly
-            const bookingAcc = document.getElementById('booking-accordion');
-            if (bookingAcc && !bookingAcc.classList.contains('open')) {
-                toggleAccordion('booking-accordion');
-            }
-            if (!sTime) startGPS();
+            openBookingPanel();
+            gpsReady = true; document.getElementById('startBtn').disabled = false;
             setupAutocomplete('sch-start', 'sch-start-suggestions');
             setupAutocomplete('sch-end', 'sch-end-suggestions');
         }
         updateDisplay();
+        applyLanguage();
         showToast(`${mode.toUpperCase()} Navigation Mode Enabled`, 'info');
     }
 
@@ -650,6 +841,8 @@ let paymentSaving=false, settingsSaving=false;
                                 startLocationAddress = p.display_name;
                             }
                             div.style.display = 'none';
+                            pickerSearchLocation={lat:Number(p.lat),lng:Number(p.lon)};
+                            openMapPicker(inputId==='start-loc'?'start':inputId==='end-loc'?'end':inputId);
                         };
                         div.appendChild(item);
                     });
@@ -677,6 +870,50 @@ let paymentSaving=false, settingsSaving=false;
                   Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
         const distance = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         return distance;
+    }
+
+    function sanitizedRidePath(path = ridePath) {
+        if (!Array.isArray(path)) return [];
+        return path.slice(-MAX_RIDE_PATH_POINTS).filter(point => Array.isArray(point) && point.length === 2
+            && Number.isFinite(Number(point[0])) && Number.isFinite(Number(point[1]))
+            && Math.abs(Number(point[0])) <= 90 && Math.abs(Number(point[1])) <= 180)
+            .map(point => [Number(Number(point[0]).toFixed(6)), Number(Number(point[1]).toFixed(6))]);
+    }
+
+    function displayRidePath() {
+        const snapped=sanitizedRidePath(roadSnappedPath);
+        return snapped.length>=2?snapped:sanitizedRidePath();
+    }
+
+    async function refreshRoadSnappedPath(force=false) {
+        const raw=sanitizedRidePath();
+        if(raw.length<2||roadSnapBusy||(!force&&Date.now()-lastRoadSnapTime<ROAD_SNAP_INTERVAL_MS))return false;
+        roadSnapBusy=true;lastRoadSnapTime=Date.now();
+        try{
+            const sample=raw.slice(-90),coordinates=sample.map(point=>`${point[1]},${point[0]}`).join(';');
+            const url=`https://router.project-osrm.org/match/v1/driving/${coordinates}?geometries=geojson&overview=full&tidy=true&gaps=split`;
+            const response=await fetchWithTimeout(url),data=await response.json();
+            const matched=(Array.isArray(data?.matchings)?data.matchings:[]).flatMap(item=>item?.geometry?.coordinates||[])
+                .map(point=>[Number(point[1]),Number(point[0])]);
+            const clean=sanitizedRidePath(matched);
+            if(response.ok&&clean.length>=2){roadSnappedPath=clean;if(driverPopupPathLine)driverPopupPathLine.setLatLngs(displayRidePath());return true;}
+        }catch(e){console.warn('Road snapping unavailable; showing filtered GPS path',e);}
+        finally{roadSnapBusy=false;}
+        return false;
+    }
+
+    function appendRidePath(lat, lng, allowValidatedGap = false) {
+        if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return false;
+        const previous = ridePath.at(-1);
+        if (previous) {
+            const distance = calculateDistanceMeters(previous[0], previous[1], lat, lng);
+            if (distance > MAX_DISTANCE && !allowValidatedGap) return false; // Reject unvalidated jumps from marker and route.
+            if (distance < MIN_DISTANCE) return true;
+        }
+        ridePath.push([Number(lat.toFixed(6)), Number(lng.toFixed(6))]);
+        if (ridePath.length > MAX_RIDE_PATH_POINTS) ridePath = ridePath.filter((_, index) => index % 2 === 0).slice(-MAX_RIDE_PATH_POINTS);
+        if (driverPopupPathLine) driverPopupPathLine.setLatLngs(displayRidePath());
+        return true;
     }
     
     function isValidGPSUpdate(lat, lon, accuracy, prevLat, prevLon) {
@@ -719,6 +956,116 @@ let paymentSaving=false, settingsSaving=false;
         return (sum / gpsAccuracyHistory.length).toFixed(1);
     }
 
+    function validRoadPoint(point) {
+        return point && Number.isFinite(Number(point.lat)) && Number.isFinite(Number(point.lng))
+            && Math.abs(Number(point.lat)) <= 90 && Math.abs(Number(point.lng)) <= 180;
+    }
+
+    function gpsQualityFromAccuracy(accuracy) {
+        if (!Number.isFinite(accuracy) || accuracy <= 0) return 'waiting';
+        if (accuracy <= 15) return 'excellent';
+        if (accuracy <= 30) return 'good';
+        if (accuracy <= MAX_ACCURACY) return 'weak';
+        return 'paused';
+    }
+
+    function gpsQualityLabel() {
+        return ({ excellent:'Excellent', good:'Good', weak:'Weak', recovering:'Recovering',
+            restored:'Restored', paused:'Paused', waiting:'Waiting' })[gpsQualityState] || 'Waiting';
+    }
+
+    function estimateFareForMeters(meters) {
+        const tariff=activeTariff(), manualFare=Math.max(0,parseFloat(document.getElementById('manual-fare').value)||0);
+        const disc=Math.max(0,parseFloat(document.getElementById('discount-input').value)||0);
+        const wait=parseInt(document.getElementById('wait-select').value)||0;
+        let total=manualFare>0
+            ? manualFare+wait*Number(tariff.waitRate)-disc
+            : Number(tariff.base)+Math.max(0,meters/1000-1)*Number(tariff.rate)+wait*Number(tariff.waitRate)-disc;
+        if(nightActive) total*=1+Number(tariff.nightPercent)/100;
+        return Math.max(0,Math.round(total));
+    }
+
+    async function geocodeRoadPoint(address) {
+        const q=String(address||'').trim();
+        if(!q) return null;
+        const res=await fetchWithTimeout(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q+', Sri Lanka')}&accept-language=en&countrycodes=lk`,{headers:{'Accept-Language':'en'}});
+        const rows=await res.json(), row=Array.isArray(rows)?rows[0]:null;
+        const point=row?{lat:Number(row.lat),lng:Number(row.lon)}:null;
+        return validRoadPoint(point)?point:null;
+    }
+
+    async function roadRouteThrough(points) {
+        if(!Array.isArray(points)||points.length<2||points.length>7||points.some(point=>!validRoadPoint(point))) throw Error('Route points unavailable');
+        const coordinates=points.map(point=>`${Number(point.lng)},${Number(point.lat)}`).join(';');
+        const url=`https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=false&alternatives=false&steps=false`;
+        const res=await fetchWithTimeout(url), data=await res.json(), route=data?.routes?.[0];
+        if(!res.ok||!route||!Number.isFinite(route.distance)||route.distance<0) throw Error('Road estimate unavailable');
+        return {distance:route.distance,duration:Number(route.duration)||0};
+    }
+    async function roadRoute(from,to) { return roadRouteThrough([from,to]); }
+
+    async function routePointForAddress(address) {
+        const key=String(address||'').trim();
+        const cached=routeStopPoints[key];
+        if(validRoadPoint(cached))return cached;
+        const point=await geocodeRoadPoint(key);if(point)routeStopPoints[key]=point;return point;
+    }
+
+    async function refreshRouteEstimate(showFailure=false) {
+        const destination=String(currentDestinationAddress||document.getElementById('end-loc')?.value||document.getElementById('sch-end')?.value||'').trim();
+        if(!destination){estimatedDistanceMeters=0;estimatedDurationSeconds=0;updateReliabilityPanel();return false;}
+        const from=validRoadPoint(selectedPickupPoint)?selectedPickupPoint:
+            (Number.isFinite(currentLat)&&Number.isFinite(currentLng)?{lat:currentLat,lng:currentLng}:null);
+        if(!validRoadPoint(from)){if(showFailure)showToast('Wait for pickup GPS before estimating the route.','warning');return false;}
+        let to=validRoadPoint(selectedDestinationPoint)?selectedDestinationPoint:null;
+        try{
+            if(!to) to=await geocodeRoadPoint(destination);
+            if(!to) throw Error('Destination not found');
+            const stopPoints=[];
+            for(const stop of routeStops){const point=await routePointForAddress(stop);if(!point)throw Error('Stop not found: '+stop);stopPoints.push(point);}
+            const route=await roadRouteThrough([from,...stopPoints,to]);
+            selectedPickupPoint=from;selectedDestinationPoint=to;
+            estimatedDistanceMeters=route.distance;estimatedDurationSeconds=route.duration;estimateBaselineMeters=totalMeters;
+            updateReliabilityPanel();updateRouteSummary();saveRideState();return true;
+        }catch(e){
+            if(showFailure)showToast('Road estimate unavailable. Actual GPS meter continues.','warning');
+            return false;
+        }
+    }
+
+    async function recoverGapDistance(from,to,elapsedMs) {
+        if(gapRecoveryBusy||!validRoadPoint(from)||!validRoadPoint(to)) return;
+        const seconds=Math.max(1,elapsedMs/1000),direct=calculateDistanceMeters(from.lat,from.lng,to.lat,to.lng);
+        if(!Number.isFinite(direct)||direct<MIN_DISTANCE||direct/seconds>55) return;
+        gapRecoveryBusy=true;gpsQualityState='recovering';gpsGapCount++;updateReliabilityPanel();
+        let recovered=direct;
+        try{
+            const route=await roadRoute(from,to), ceiling=Math.min(seconds*55,direct*MAX_GAP_ROUTE_RATIO,direct+MAX_GAP_CORRECTION_METERS);
+            if(route.distance>=direct*.9&&route.distance<=ceiling) recovered=route.distance;
+        }catch(e){}
+        appendRidePath(to.lat,to.lng,true);currentLat=to.lat;currentLng=to.lng;lastLat=to.lat;lastLon=to.lng;updateDriverPopupMarker(currentLat,currentLng);
+        if(currentMode==='auto')reverseGeocode(currentLat,currentLng);
+        totalMeters+=recovered;recoveredMeters+=recovered;gpsQualityState='restored';gapRecoveryBusy=false;
+        updateDisplay();saveRideState();
+        showToast(`GPS gap recovered: +${(recovered/1000).toFixed(2)} km`,'warning');
+    }
+
+    function updateReliabilityPanel(finalCheck=false) {
+        const q=document.getElementById('gps-quality-value'),est=document.getElementById('estimated-distance-value');
+        const ef=document.getElementById('estimated-fare-value'),rec=document.getElementById('recovered-distance-value');
+        const diff=document.getElementById('distance-variance-value'),warn=document.getElementById('distance-warning');
+        if(q){q.textContent=gpsQualityLabel();q.className=gpsQualityState==='excellent'||gpsQualityState==='good'?'text-emerald-400 font-extrabold':gpsQualityState==='weak'||gpsQualityState==='restored'?'text-amber-400 font-extrabold':'text-rose-400 font-extrabold';}
+        if(est)est.textContent=estimatedDistanceMeters>0?(estimatedDistanceMeters/1000).toFixed(2)+' km':'--';
+        if(ef)ef.textContent=estimatedDistanceMeters>0?'LKR '+estimateFareForMeters(estimatedDistanceMeters).toFixed(2):'--';
+        if(rec)rec.textContent=recoveredMeters>0?(recoveredMeters/1000).toFixed(2)+' km / '+gpsGapCount:'0.00 km / 0';
+        const variance=estimatedDistanceMeters>0?totalMeters-(estimateBaselineMeters+estimatedDistanceMeters):0;
+        if(diff)diff.textContent=estimatedDistanceMeters>0?(variance>=0?'+':'')+(variance/1000).toFixed(2)+' km':'--';
+        const limit=Math.max(750,estimatedDistanceMeters*.12);
+        const unusual=estimatedDistanceMeters>0&&(variance>limit||(finalCheck&&Math.abs(variance)>limit));
+        if(warn){warn.hidden=!unusual;warn.textContent=variance>0?'⚠ Actual distance exceeds the road estimate. Confirm route changes/stops before payment.':'⚠ Final distance is below the estimate. Check GPS quality before payment.';}
+        return unusual;
+    }
+
     let lastKmValue = 0, lastFareValue = 0;
     function animateCounter(id) {
         let el = document.getElementById(id);
@@ -754,19 +1101,17 @@ let paymentSaving=false, settingsSaving=false;
         }
         
         let ni = document.getElementById('night-indicator');
-        if (ni) ni.style.display = (nightActive && !document.getElementById('manual-fare').value) ? 'inline-block' : 'none';
+        if (ni) ni.style.display = nightActive ? 'inline-block' : 'none';
+        updateReliabilityPanel();
     }
 
     function calcFare() {
-        let manualFare = Math.max(0, parseFloat(document.getElementById('manual-fare').value) || 0),
-            disc = Math.max(0, parseFloat(document.getElementById('discount-input').value) || 0),
-            wait = (parseInt(document.getElementById('wait-select').value) || 0),
-            waitCharge = wait * SETTINGS.waitRate,
-            km = totalMeters / 1000,
-            total = manualFare > 0 ? manualFare + waitCharge - disc : SETTINGS.base + (Math.max(0, km - 1) * SETTINGS.rate) + waitCharge - disc;
-            
-        if (nightActive && manualFare === 0) total = total + (total * SETTINGS.nightPercent / 100);
-        return Math.max(0, Math.round(total));
+        const tariff=activeTariff(),manualFare=Math.max(0,parseFloat(document.getElementById('manual-fare').value)||0),
+            disc=Math.max(0,parseFloat(document.getElementById('discount-input').value)||0),wait=parseInt(document.getElementById('wait-select').value)||0,
+            waitCharge=wait*Number(tariff.waitRate),km=totalMeters/1000;
+        let total=manualFare>0?manualFare+waitCharge-disc:Number(tariff.base)+(Math.max(0,km-1)*Number(tariff.rate))+waitCharge-disc;
+        if(nightActive)total+=total*Number(tariff.nightPercent)/100;
+        return Math.max(0,Math.round(total));
     }
 
     // ========== STREAMING_CHUNK: Managing Active Ride Start & End Sequences ==========
@@ -774,8 +1119,10 @@ let paymentSaving=false, settingsSaving=false;
         if (pendingRideData) { openPaymentPopup(); return; }
         if (!sTime && loadRideState()) { showToast('Restore the previous ride or use RESET before starting a new one.', 'warning'); return; }
         if(sTime) { showToast("Ride already active!", 'warning'); return; }
+        const customerEmail=document.getElementById('customer-email')?.value.trim()||'';
+        if(customerEmail&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail)){showToast('Enter a valid customer email or leave it blank.','warning');return;}
         
-        if (currentMode !== 'manual' && !gpsReady) { showToast('Wait for an accurate GPS fix or use Manual mode.', 'warning'); return; }
+        if (!usesManualDistance() && !gpsReady) { showToast('Wait for an accurate GPS fix or use Manual mode.', 'warning'); return; }
         if(currentMode === 'auto') { 
             if(!currentLocationAddress || currentLocationAddress === "GPS සංඥා ලැබෙන තෙක් රැඳී සිටින්න...") { 
                 showToast("GPS සක්‍රීය වන තෙක් රැඳී සිටින්න!", 'warning'); 
@@ -792,6 +1139,10 @@ let paymentSaving=false, settingsSaving=false;
                 startLocVal = document.getElementById('sch-start').value.trim();
                 endLocVal = document.getElementById('sch-end').value.trim();
             }
+            if(['gps','manual','delivery'].includes(currentMode)&&(!startLocVal||!isResolvedAddress(startLocVal))){
+                const refreshedPickup=await refreshPickupFromGPS();
+                if(refreshedPickup)startLocVal=refreshedPickup;
+            }
             
             if(!startLocVal || !endLocVal) { 
                 showToast("කරුණාකර Pickup සහ Drop ස්ථාන ඇතුළත් කරන්න!", 'warning'); 
@@ -805,20 +1156,29 @@ let paymentSaving=false, settingsSaving=false;
             currentDestinationAddress = endLocVal;
         }
         
-        sTime = new Date();
+        const startedAt = new Date();
+        if (window.nativeMeter?.supported) {
+            try { await window.nativeMeter.call('start',{rideId:startedAt.toISOString(),meters:usesManualDistance()?totalMeters:0,metered:!usesManualDistance()}); }
+            catch(e) { showToast(e.message,'error'); return; }
+        }
+        sTime = startedAt;
+        ridePath = [];
+        roadSnappedPath = [];lastRoadSnapTime=0;
+        if (Number.isFinite(currentLat) && Number.isFinite(currentLng)) appendRidePath(currentLat, currentLng);
         await requestWakeLock();
         document.body.classList.add('ride-active');
         document.getElementById('showMapPopupBtn').classList.remove('hidden');
         document.getElementById('active-ride-banner').classList.remove('hidden');
         
-        if(currentMode === 'auto' || currentMode === 'gps' || currentMode === 'delivery' || currentMode === 'schedule') {
+        if(!usesManualDistance()) {
             totalMeters = 0;
             lastLat = null; 
             lastLon = null;
             trackRide();
             if (currentMode !== 'auto') document.getElementById('nav-container').classList.remove('hidden');
         } 
-        else if(currentMode === 'manual') {
+        else if(usesManualDistance()) {
+            trackRide();
             totalMeters = (parseFloat(document.getElementById('manual-km-input').value) || 0) * 1000;
             document.getElementById('nav-container').classList.remove('hidden');
         } 
@@ -840,8 +1200,10 @@ let paymentSaving=false, settingsSaving=false;
         document.getElementById('share-location').checked=true;
         saveRideState();
         await showTrackingPopup();
+        configureNativeMeter();
         startTrackingUpdates();
         startRideStatusMonitoring();
+        refreshRouteEstimate(false).catch(()=>{});
         showToast("ගමන සාර්ථකව ආරම්භ විය! 🚕", 'success');
         sendNotification('Ride Started', 'Your taxi ride has started. Safe journey!');
     }
@@ -857,11 +1219,9 @@ let paymentSaving=false, settingsSaving=false;
         
         setTimeout(() => {
             try {
-                if (driverPopupMap) { driverPopupMap.remove(); }
+                if (driverPopupMap) { driverPopupMap.remove(); driverPopupPathLine = null; }
                 driverPopupMap = L.map('driver-popup-map-canvas', { zoomControl: false }).setView([defaultLat, defaultLng], 15);
-                L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-                    maxZoom: 19
-                }).addTo(driverPopupMap);
+                addFreeMapTiles(driverPopupMap);
                 
                 driverPopupMarker = L.marker([defaultLat, defaultLng], {
                     icon: L.divIcon({
@@ -871,6 +1231,7 @@ let paymentSaving=false, settingsSaving=false;
                         iconAnchor: [18, 18]
                     })
                 }).addTo(driverPopupMap);
+                driverPopupPathLine = L.polyline(displayRidePath(), { color: '#2563eb', weight: 5, opacity: 0.9, lineJoin: 'round' }).addTo(driverPopupMap);
                 
                 driverPopupMap.invalidateSize();
             } catch(e) {
@@ -886,7 +1247,8 @@ let paymentSaving=false, settingsSaving=false;
     function updateDriverPopupMarker(lat, lon) {
         if (driverPopupMarker && driverPopupMap) {
             driverPopupMarker.setLatLng([lat, lon]);
-            driverPopupMap.setView([lat, lon]);
+            if (driverPopupPathLine) driverPopupPathLine.setLatLngs(displayRidePath());
+            driverPopupMap.panTo([lat, lon], { animate: true, duration: 0.8 });
         }
     }
 
@@ -897,42 +1259,36 @@ let paymentSaving=false, settingsSaving=false;
         if (rideEnding) return;
         rideEnding = true;
         try {
+        await syncNativeMeter();
+        const distanceWarning=updateReliabilityPanel(true);
+        if(distanceWarning&&!confirm('Actual distance differs significantly from the road estimate. Confirm the route and continue to payment?'))return;
+        if (window.nativeMeter?.supported) await window.nativeMeter.call('stop');
         showLoading(true);
         closeDriverMapPopup();
         
         let finalLat = currentLat || lastLat;
         let finalLon = currentLng || lastLon;
         
-        if (currentMode !== 'manual' && navigator.geolocation) {
+        if (currentMode === 'auto' && navigator.geolocation) {
             try {
-                const finalPos = await new Promise((resolve, reject) => {
-                    navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 3000 });
-                });
-                finalLat = finalPos.coords.latitude;
-                finalLon = finalPos.coords.longitude;
-                currentLat = finalLat;
-                currentLng = finalLon;
-            } catch (e) {
-                console.log("Fallback geo trigger default values", e);
-            }
-        }
-        
-        let finalAddress = getSriLankaFallbackAddress(finalLat, finalLon);
-        if (currentMode !== 'manual' && finalLat && finalLon) {
-            try {
-                let res = await fetchWithTimeout(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${finalLat}&lon=${finalLon}&accept-language=en&countrycodes=lk`, {
-                    headers: { "Accept-Language": "en" }
-                });
-                let data = await res.json();
-                if (data && data.display_name) {
-                    finalAddress = data.display_name;
+                const finalPos = await acquireFreshPosition(7000);
+                const freshAccuracy=Number(finalPos.coords.accuracy)||0;
+                if(freshAccuracy<=Math.max(100,MAX_ACCURACY)){
+                    finalLat = finalPos.coords.latitude;
+                    finalLon = finalPos.coords.longitude;
+                    currentLat = finalLat;
+                    currentLng = finalLon;
                 }
-            } catch(err) {
-                console.log("OSM Error, resolving fallback Sri Lankan address", err);
+            } catch (e) {
+                console.warn("Fresh final GPS unavailable; using the latest validated ride point", e);
             }
         }
+        if (Number.isFinite(finalLat) && Number.isFinite(finalLon) && appendRidePath(finalLat, finalLon)) {
+            currentLat = finalLat; currentLng = finalLon;
+        }
         
-        if (currentMode === 'manual') finalAddress = currentDestinationAddress || document.getElementById('end-loc').value;
+        await refreshRoadSnappedPath(true);
+        const finalAddress = await resolveReceiptDropAddress(finalLat,finalLon);
         let fare = calcFare(); 
         currentRID = generateReceiptID(); 
         let km = totalMeters / 1000; 
@@ -947,12 +1303,14 @@ let paymentSaving=false, settingsSaving=false;
 
         pendingRideData = { 
             id: currentRID,
-            tariff: { ...SETTINGS },
+            tariff: receiptSettingsSnapshot(),
             startTime: sTime.getTime(),
             fare: fare, 
             km: km, 
             from: fromAddress, 
             to: finalAddress, 
+            customerName: document.getElementById('customer-name')?.value.trim() || '',
+            customerEmail: document.getElementById('customer-email')?.value.trim() || '',
             mobile: document.getElementById('mobile').value || "N/A", 
             wait: parseInt(document.getElementById('wait-select').value) || 0, 
             disc: Math.max(0, parseFloat(document.getElementById('discount-input').value) || 0), 
@@ -961,6 +1319,17 @@ let paymentSaving=false, settingsSaving=false;
             mode: activeBookingId ? "Booked Ride" : (currentMode === 'auto' ? "Auto" : (currentMode === 'gps' ? "GPS" : (currentMode === 'manual' ? "Manual" : "Delivery"))), 
             time: Date.now(),
             trackingId: currentTrackingId,
+            stops: routeStops.slice(),
+            routeRevision,
+            estimatedKm: estimatedDistanceMeters>0?Number((estimatedDistanceMeters/1000).toFixed(3)):null,
+            estimatedFare: estimatedDistanceMeters>0?estimateFareForMeters(estimatedDistanceMeters):null,
+            recoveredKm: Number((recoveredMeters/1000).toFixed(3)),
+            gpsGaps: gpsGapCount,
+            distanceVarianceKm: estimatedDistanceMeters>0?Number(((totalMeters-estimateBaselineMeters-estimatedDistanceMeters)/1000).toFixed(3)):null,
+            trackingToken: trackingShareToken,
+            path: displayRidePath(),
+            finalLat: Number.isFinite(finalLat) ? finalLat : null,
+            finalLng: Number.isFinite(finalLon) ? finalLon : null,
             bookingId: activeBookingId // Link booking ID
         }; 
         
@@ -992,15 +1361,20 @@ let paymentSaving=false, settingsSaving=false;
         showLoading(false);
         openPaymentPopup();
         } catch (e) {
+            if (window.nativeMeter?.supported && sTime && !pendingRideData) trackRide();
             showToast('Unable to finish ride. Please retry: ' + e.message, 'error');
         } finally { rideEnding = false; showLoading(false); }
     }
 
     function resetDriverAppOnly() {
+        if (window.nativeMeter?.supported) window.nativeMeter.call('stop').catch(e=>showToast(e.message,'error'));
         trackingShareToken=null;
         document.getElementById('share-location').checked=false;
         stopTrackingUpdates();
         currentTrackingId = null;
+        routeStops = [];routeStopPoints={};routeRevision=0;ridePath=[];roadSnappedPath=[];lastRoadSnapTime=0;
+        selectedPickupPoint=null;selectedDestinationPoint=null;estimatedDistanceMeters=0;estimatedDurationSeconds=0;
+        estimateBaselineMeters=0;recoveredMeters=0;gpsGapCount=0;gpsQualityState='waiting';gapRecoveryBusy=false;
         document.getElementById('restore-banner').classList.add('hidden');
         if(watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
         releaseWakeLock();
@@ -1031,6 +1405,8 @@ let paymentSaving=false, settingsSaving=false;
         document.getElementById('start-loc').value = '';
         document.getElementById('end-loc').value = '';
         document.getElementById('mobile').value = '';
+        document.getElementById('customer-name').value = '';
+        document.getElementById('customer-email').value = '';
         document.getElementById('manual-fare').value = '';
         document.getElementById('discount-input').value = '';
         document.getElementById('wait-select').value = '0';
@@ -1130,6 +1506,7 @@ let paymentSaving=false, settingsSaving=false;
         if (!list.some(r => r.id === ride.id)) list.push(ride);
         try { cloudStore.setItem('rides', JSON.stringify(list)); cloudStore.removeItem('amt_pending_payment'); await cloudStore.flush(); }
         catch(e) { showToast('Payment is not saved to the server. Check connection / sync status and retry.', 'error'); return; }
+        await publishCompletedReceipt(ride);
         pendingRideData = null;
         cloudStore.removeItem('amt_pending_payment');
         closePaymentPopup();
@@ -1138,6 +1515,13 @@ let paymentSaving=false, settingsSaving=false;
         showReceipt(ride, false);
         showToast('ගෙවීම් සුරැකිණි. Receipt එක සූදානම්.', 'success');
         } finally {paymentSaving=false;}
+    }
+
+    async function publishCompletedReceipt(ride){
+        const lat=Number.isFinite(ride?.finalLat)?ride.finalLat:(Number.isFinite(currentLat)?currentLat:lastLat),lng=Number.isFinite(ride?.finalLng)?ride.finalLng:(Number.isFinite(currentLng)?currentLng:lastLon);
+        if(!ride?.trackingToken||!Number.isFinite(lat)||!Number.isFinite(lng))return;
+        try{await cloudStore.request('/track/'+ride.trackingToken,{method:'PUT',body:JSON.stringify({lat,lng,currentFare:Number(ride.fare),distanceTraveled:Number(ride.km).toFixed(2),status:'completed',mode:ride.mode,path:sanitizedRidePath(ride.path),receiptId:ride.id,linkDays:SETTINGS.linkDays,route:{destination:ride.to,stops:Array.isArray(ride.stops)?ride.stops:[],estimatedRemainingKm:0,revision:Math.max(0,Number(ride.routeRevision)||0)}})});}
+        catch(e){showToast('Payment saved. Passenger receipt link will retry when this receipt is reopened.','warning');}
     }
 
     // ========== Structuring receipt layout with 100% parity ==========
@@ -1171,7 +1555,10 @@ let paymentSaving=false, settingsSaving=false;
             <div style="font-family: monospace; font-size: 11px; color: #000; line-height: 1.4; background: #fff; width: 100%; box-sizing: border-box; padding: 4px 6px;">
                 ${isReprint ? `<div style="background: #ef4444; color: #fff; text-align: center; padding: 3px; font-weight: bold; border-radius: 6px; margin-bottom: 8px; text-transform: uppercase; font-size: 9px;">📋 REPRINT DUPLICATE</div>` : ''}
                 
-                <div style="text-align: center; font-weight: bold; font-size: 13px; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.5px;">${escapeHTML(tariff.receiptName || SETTINGS.receiptName)}</div>
+                ${SETTINGS.logoData||tariff.logoData?`<div style="text-align:center;margin-bottom:6px"><img alt="Business logo" src="${SETTINGS.logoData||tariff.logoData}" style="display:inline-block;max-width:70px;max-height:55px;object-fit:contain"></div>`:''}
+                <div style="text-align: center; font-weight: bold; font-size: 14px; text-transform: uppercase;">${escapeHTML(tariff.appName || SETTINGS.appName)}</div>
+                <div style="text-align: center; font-weight: bold; font-size: 12px; text-transform: uppercase; margin-bottom: 3px; letter-spacing: 0.5px;">${escapeHTML(tariff.receiptName || SETTINGS.receiptName)}</div>
+                <div style="text-align:center;font-size:9px;line-height:1.25;margin-bottom:6px">${[tariff.address,tariff.businessMobile,tariff.email,tariff.website].filter(Boolean).map(escapeHTML).join('<br>')}</div>
                 <div style="border-bottom: 1px dashed #000; margin-bottom: 8px;"></div>
                 
                 <table style="width: 100%; border-collapse: collapse; margin-bottom: 8px; font-size: 11px;">
@@ -1199,6 +1586,7 @@ let paymentSaving=false, settingsSaving=false;
                     <div style="color: #000; font-size: 10px; word-break: break-word; line-height: 1.3;">${ride.to || 'Colombo, Sri Lanka'}</div>
                 </div>
                 
+                ${Array.isArray(ride.stops)&&ride.stops.length?`<div style="margin-bottom:8px"><div style="font-weight:bold">ROUTE STOPS:</div><div style="font-size:10px">${ride.stops.map(escapeHTML).join(' → ')}</div></div>`:''}
                 ${ride.mode === 'Delivery' ? `
                 <div style="border: 1px solid #000; border-radius: 6px; padding: 6px; margin-bottom: 8px; background: #f9f9f9;">
                     <div style="font-weight: bold; text-transform: uppercase; font-size: 10px; margin-bottom: 4px;">📦 DELIVERY & PICKUP DETAILS:</div>
@@ -1264,14 +1652,14 @@ let paymentSaving=false, settingsSaving=false;
                 </div>
                 
                 <div style="text-align: center; font-size: 9px; color: #555; margin-top: 10px;">
-                    Thank you for riding with us!<br>Powered by Advance Meeter Taxi
+                    ${escapeHTML(tariff.receiptFooter || SETTINGS.receiptFooter || 'Thank you for riding with us!')}<br>Powered by Advance Meeter Taxi
                 </div>
             </div>
         `;
     }
 
     // ========== STREAMING_CHUNK: Managing Location Picker on Live Interactive Leaflet Map ==========
-    let activeMapField = null;
+    let activeMapField = null, pickerSearchLocation = null;
     function openMapPicker(field) {
         if (typeof L === 'undefined') { showToast('Map unavailable. Enter the address manually or reconnect to the internet.', 'warning'); return; }
         activeMapField = field;
@@ -1279,8 +1667,10 @@ let paymentSaving=false, settingsSaving=false;
         modal.style.display = 'flex';
         
         let titleText = "Select Pickup Location";
-        if (field === 'end' || field === 'sch-end') {
+        if (field === 'end' || field === 'sch-end' || field === 'route-final') {
             titleText = "Select Drop Location";
+        } else if(field === 'route-stop') {
+            titleText = "Select Intermediate Stop";
         }
         document.getElementById('map-title').innerText = titleText;
         
@@ -1294,15 +1684,14 @@ let paymentSaving=false, settingsSaving=false;
     }
     
     function initPickerMap() {
-        const defaultLat = currentLat || 6.9271;
-        const defaultLng = currentLng || 79.8612;
+        const defaultLat = pickerSearchLocation?.lat ?? currentLat ?? 6.9271;
+        const defaultLng = pickerSearchLocation?.lng ?? currentLng ?? 79.8612;
+        pickerSearchLocation=null;
         
         try {
             if (mapObj) { mapObj.remove(); }
             mapObj = L.map('map', { zoomControl: true }).setView([defaultLat, defaultLng], 14);
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-                maxZoom: 19
-            }).addTo(mapObj);
+            addFreeMapTiles(mapObj);
             
             mapMarker = L.marker([defaultLat, defaultLng], { draggable: true }).addTo(mapObj);
             
@@ -1396,7 +1785,20 @@ let paymentSaving=false, settingsSaving=false;
         } else if (activeMapField === 'sch-end') {
             document.getElementById('sch-end').value = address;
             currentDestinationAddress = address;
+        } else if(activeMapField === 'route-stop') {
+            document.getElementById('route-new-stop').value=address;
+        } else if(activeMapField === 'route-final') {
+            document.getElementById('route-final-destination').value=address;
+            routeDraftDestinationAddress=address;
         }
+        if(mapMarker){
+            const p=mapMarker.getLatLng(),point={lat:Number(p.lat),lng:Number(p.lng)};
+            if(activeMapField==='start'||activeMapField==='sch-start')selectedPickupPoint=point;
+            else if(activeMapField==='route-stop')routeStopPoints[address]=point;
+            else if(activeMapField==='route-final'){routeDraftDestinationPoint=point;}
+            else selectedDestinationPoint=point;
+        }
+        if(sTime)refreshRouteEstimate(false).catch(()=>{});
         
         closeMapModal();
         showToast("ස්ථානය සාර්ථකව තෝරා ගන්නා ලදී!", "success");
@@ -1508,8 +1910,7 @@ let paymentSaving=false, settingsSaving=false;
         document.getElementById('sch-manual-fare').value = '';
         document.getElementById('sch-notes').value = '';
 
-        // Collapse card accordion
-        toggleAccordion('booking-accordion');
+        closeM('booking-modal');
         showToast("නව කාලසටහන සාර්ථකව ඇතුළත් කරන ලදී!", "success");
         addSystemLog('INFO', 'New Ride Scheduled', `Customer: ${name}, Date: ${datetime}`);
     }
@@ -1584,7 +1985,10 @@ let paymentSaving=false, settingsSaving=false;
         if (!sch || sch.status === "completed") return;
         
         // Setup console tracking parameters
-        setMode('gps');
+        setMode('manual');
+        totalMeters=Math.max(0,Number(sch.km)||0)*1000;
+        document.getElementById('manual-km-input').value=(totalMeters/1000).toFixed(2);
+        document.getElementById('customer-name').value=sch.name||'';
         document.getElementById('start-loc').value = sch.start;
         document.getElementById('end-loc').value = sch.end;
         document.getElementById('mobile').value = sch.phone;
@@ -1604,10 +2008,7 @@ let paymentSaving=false, settingsSaving=false;
 
         closeM('schedule-manager-modal');
         
-        const bookingAccordion = document.getElementById('booking-accordion');
-        if (bookingAccordion && bookingAccordion.classList.contains('open')) {
-            toggleAccordion('booking-accordion');
-        }
+        closeM('booking-modal');
         
         // Execute instant ride start sequence
         setTimeout(() => {
@@ -1619,6 +2020,12 @@ let paymentSaving=false, settingsSaving=false;
     function openScheduleManager() {
         document.getElementById('schedule-manager-modal').style.display = 'flex';
         filterSchedulesTab('all');
+    }
+
+    function openBookingPanel() {
+        document.getElementById('booking-modal').style.display='flex';
+        setupAutocomplete('sch-start','sch-start-suggestions');
+        setupAutocomplete('sch-end','sch-end-suggestions');
     }
 
     function openScheduleManagerFromSettings() {
@@ -2136,18 +2543,18 @@ let paymentSaving=false, settingsSaving=false;
         if (ctx && typeof Chart !== 'undefined') {
             if (window.profitChartObj) window.profitChartObj.destroy();
             window.profitChartObj = new Chart(ctx, {
-                type: 'doughnut',
+                type: 'bar',
                 data: {
-                    labels: ['Revenue', 'Fuel', 'Repairs'],
+                    labels: ['Revenue', 'Fuel', 'Repairs', 'Net Profit'],
                     datasets: [{
-                        data: [totalRevenue, totalFuel, totalRepairs],
-                        backgroundColor: ['#10b981', '#ef4444', '#f59e0b'],
+                        data: [totalRevenue, totalFuel, totalRepairs, netProfit],
+                        backgroundColor: ['#10b981', '#ef4444', '#f59e0b', netProfit>=0?'#3b82f6':'#dc2626'],
                         borderWidth: 0
                     }]
                 },
                 options: {
                     responsive: true,
-                    plugins: { legend: { labels: { color: '#fff', font: { size: 8 } } } }
+                    plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{color:'#cbd5e1',font:{size:11}}},x:{ticks:{color:'#cbd5e1',font:{size:11}}}}
                 }
             });
         }
@@ -2233,8 +2640,17 @@ let paymentSaving=false, settingsSaving=false;
         document.getElementById('set-rate').value = SETTINGS.rate;
         document.getElementById('set-wait').value = SETTINGS.waitRate;
         document.getElementById('set-night').value = SETTINGS.nightPercent;
-
-        document.getElementById('display-app-name').innerHTML = escapeHTML(SETTINGS.appName).replace(" ", "<br>");
+        SETTINGS.deliveryTariff={base:SETTINGS.base,rate:SETTINGS.rate,waitRate:SETTINGS.waitRate,nightPercent:SETTINGS.nightPercent,...SETTINGS.deliveryTariff};
+        SETTINGS.scheduleTariff={base:SETTINGS.base,rate:SETTINGS.rate,waitRate:SETTINGS.waitRate,nightPercent:SETTINGS.nightPercent,...SETTINGS.scheduleTariff};
+        [['delivery',SETTINGS.deliveryTariff],['schedule',SETTINGS.scheduleTariff]].forEach(([p,t])=>{document.getElementById(`set-${p}-base`).value=t.base;document.getElementById(`set-${p}-rate`).value=t.rate;document.getElementById(`set-${p}-wait`).value=t.waitRate;document.getElementById(`set-${p}-night`).value=t.nightPercent;});
+        document.getElementById('set-address').value = SETTINGS.address || '';
+        document.getElementById('set-mobile').value = SETTINGS.businessMobile || '';
+        document.getElementById('set-email').value = SETTINGS.email || '';
+        document.getElementById('set-website').value = SETTINGS.website || '';
+        document.getElementById('set-receipt-footer').value = SETTINGS.receiptFooter || '';
+        document.getElementById('set-language').value = SETTINGS.language === 'en' ? 'en' : 'bi';
+        document.getElementById('set-link-days').value = String([7,30,90].includes(Number(SETTINGS.linkDays))?SETTINGS.linkDays:30);
+        renderBusinessIdentity();
         
         const autoBackupCheck = document.getElementById('auto-backup-toggle');
         if (autoBackupCheck) {
@@ -2254,6 +2670,7 @@ let paymentSaving=false, settingsSaving=false;
         document.addEventListener('visibilitychange', () => { if (!document.hidden && sTime) requestWakeLock(); });
         window.addEventListener('pagehide', saveRideState);
         setInterval(checkScheduleReminders, 30000);
+        if (window.nativeMeter?.supported) setInterval(()=>{if(sTime && !rideEnding) syncNativeMeter().catch(e=>cloudStore.reportStatus(e.message));},3000);
         
         if ('Notification' in window && Notification.permission === 'default') {
             Notification.requestPermission();
@@ -2261,7 +2678,10 @@ let paymentSaving=false, settingsSaving=false;
     };
 
     // ========== HELPER ROUTINES ==========
-    function generateTrackingId() { return Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join(''); }
+    function generateTrackingId() {
+        const d=new Date(),part=n=>String(n).padStart(2,'0'),suffix=Array.from(crypto.getRandomValues(new Uint8Array(2)),b=>b.toString(16).padStart(2,'0')).join('').toUpperCase();
+        return `TR-${String(d.getFullYear()).slice(-2)}${part(d.getMonth()+1)}${part(d.getDate())}-${part(d.getHours())}${part(d.getMinutes())}${part(d.getSeconds())}-${suffix}`;
+    }
     function closeM(id) { document.getElementById(id).style.display = 'none'; }
     function openLogin() { document.getElementById('settings-modal').style.display='flex'; }
     function checkLogin() {
@@ -2279,13 +2699,17 @@ let paymentSaving=false, settingsSaving=false;
     
     async function saveSettings() {
         if(settingsSaving)return;
-        if(cloudStore.user?.role!=='admin'){showToast('Only an administrator may change tariffs.','warning');return;}
         if (sTime || pendingRideData) { showToast("Finish the ride and payment before changing tariffs.", "warning"); return; }
-        if (['set-base','set-rate','set-wait','set-night'].some(id => {
+        if (['set-base','set-rate','set-wait','set-night','set-delivery-base','set-delivery-rate','set-delivery-wait','set-delivery-night','set-schedule-base','set-schedule-rate','set-schedule-wait','set-schedule-night'].some(id => {
             const val = document.getElementById(id).value;
             return val.trim() === '' || !Number.isFinite(Number(val)) || Number(val) < 0 || Number(val)>1000000;
         })) { showToast('Enter valid non-negative rates.', 'error'); return; }
         if(['set-app-name','set-receipt-header'].some(id=>document.getElementById(id).value.trim().length>120)){showToast('Names must be 120 characters or fewer.','error');return;}
+        const fieldLimits={'set-address':300,'set-mobile':40,'set-email':120,'set-website':200,'set-receipt-footer':300};
+        if(Object.entries(fieldLimits).some(([id,n])=>document.getElementById(id).value.trim().length>n)){showToast('A business profile field is too long.','error');return;}
+        const email=document.getElementById('set-email').value.trim(),website=document.getElementById('set-website').value.trim();
+        if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){showToast('Enter a valid business email.','error');return;}
+        if(website&&!/^https:\/\//i.test(website)){showToast('Website must begin with https://','error');return;}
         settingsSaving=true;
         document.getElementById('save-settings-button').disabled=true;
         try {
@@ -2295,17 +2719,26 @@ let paymentSaving=false, settingsSaving=false;
         SETTINGS.rate = Number(document.getElementById('set-rate').value);
         SETTINGS.waitRate = Number(document.getElementById('set-wait').value);
         SETTINGS.nightPercent = Number(document.getElementById('set-night').value);
+        SETTINGS.deliveryTariff={base:Number(document.getElementById('set-delivery-base').value),rate:Number(document.getElementById('set-delivery-rate').value),waitRate:Number(document.getElementById('set-delivery-wait').value),nightPercent:Number(document.getElementById('set-delivery-night').value)};
+        SETTINGS.scheduleTariff={base:Number(document.getElementById('set-schedule-base').value),rate:Number(document.getElementById('set-schedule-rate').value),waitRate:Number(document.getElementById('set-schedule-wait').value),nightPercent:Number(document.getElementById('set-schedule-night').value)};
+        SETTINGS.address = document.getElementById('set-address').value.trim();
+        SETTINGS.businessMobile = document.getElementById('set-mobile').value.trim();
+        SETTINGS.email = document.getElementById('set-email').value.trim();
+        SETTINGS.website = document.getElementById('set-website').value.trim();
+        SETTINGS.receiptFooter = document.getElementById('set-receipt-footer').value.trim();
+        SETTINGS.language = document.getElementById('set-language').value === 'en' ? 'en' : 'bi';
+        SETTINGS.linkDays = Number(document.getElementById('set-link-days').value);
 
         
         cloudStore.setItem('settings', JSON.stringify(SETTINGS));
         await cloudStore.flush();
-        document.getElementById('display-app-name').innerHTML = escapeHTML(SETTINGS.appName).replace(" ", "<br>");
+        renderBusinessIdentity();
         
         closeM('app-settings-modal');
         document.getElementById('settings-modal').style.display = 'flex';
         updateDisplay();
         showToast("Configs updated!", "success");
-        } catch(e) {showToast('Configurations are not saved: '+e.message,'error');}
+        } catch(e) {cloudStore.reportStatus('NOT SAVED: '+e.message);showToast('Configurations are not saved: '+e.message,'error');}
         finally {settingsSaving=false;document.getElementById('save-settings-button').disabled=false;}
     }
 
@@ -2314,16 +2747,20 @@ let paymentSaving=false, settingsSaving=false;
         if (el) el.classList.toggle('open');
     }
     
+    function renderNightButton() {
+        const btn=document.getElementById('nightBtn');if(!btn)return;
+        btn.innerHTML='🌙';
+        btn.setAttribute('aria-label',nightActive?'Night charge on':'Night charge off');
+        btn.title=nightActive?'Night charge ON':'Night charge OFF';
+        btn.classList.toggle('night-active',nightActive);
+    }
+
     function toggleNightCharge() {
         nightActive = !nightActive;
-        const btn = document.getElementById('nightBtn');
+        renderNightButton();
         if (nightActive) {
-            btn.innerHTML = '🌙 NIGHT ON';
-            btn.classList.add('bg-indigo-600/20', 'border-indigo-500');
             showToast("රාත්‍රී ගාස්තු ක්‍රියාත්මකයි (Night Tariff Activated)", "success");
         } else {
-            btn.innerHTML = '🌙 NIGHT OFF';
-            btn.classList.remove('bg-indigo-600/20', 'border-indigo-500');
             showToast("රාත්‍රී ගාස්තු අක්‍රීයයි (Night Tariff Deactivated)", "info");
         }
         updateDisplay();
@@ -2333,7 +2770,10 @@ let paymentSaving=false, settingsSaving=false;
     function resetToNew() {
         if (rideEnding) return;
         if (pendingRideData) { openPaymentPopup(); return; }
-        if (confirm("ගමන මුල සිට ආරම්භ කිරීමට (Reset) අවශ්‍ය බව ස්ථිරද?")) {
+        const warning=sTime
+          ? "⚠️ සක්‍රීය ගමනක් පවතී. Reset කළහොත් save නොකළ වත්මන් ගමන් දත්ත අහිමි විය හැක. අනිවාර්යයෙන් Reset කරන්නද?"
+          : "නව ගමනක් සඳහා meter එක Reset කරන්නද?";
+        if (confirm(warning)) {
             resetDriverAppOnly();
         }
     }
@@ -2371,13 +2811,61 @@ let paymentSaving=false, settingsSaving=false;
     }
 
     // Open Phone Navigation links
+    function renderRouteManager() {
+        const list=document.getElementById('route-stops-list'),count=document.getElementById('route-stop-count');if(!list||!count)return;
+        count.textContent=`${routeStops.length} / 5`;
+        list.innerHTML=routeStops.length?routeStops.map((stop,index)=>`<div class="grid grid-cols-[auto_1fr_auto] gap-2 items-center bg-slate-950 border border-slate-800 rounded-lg p-2"><span class="w-6 h-6 rounded-full bg-amber-600 text-white grid place-items-center font-bold">${index+1}</span><span class="break-words text-slate-200">${escapeHTML(stop)}</span><div class="grid grid-cols-3 gap-1"><button aria-label="Move stop up" class="px-2 bg-slate-800 rounded" onclick="moveRouteStop(${index},-1)">↑</button><button aria-label="Move stop down" class="px-2 bg-slate-800 rounded" onclick="moveRouteStop(${index},1)">↓</button><button aria-label="Delete stop" class="px-2 bg-red-900/70 text-red-200 rounded" onclick="removeRouteStop(${index})">✕</button></div></div>`).join(''):'<div class="text-center text-slate-600 py-2">No intermediate stops</div>';
+    }
+
+    function openRouteManager() {
+        const origin=startLocationAddress||currentLocationAddress||(Number.isFinite(currentLat)?`${currentLat.toFixed(5)}, ${currentLng.toFixed(5)}`:'Waiting for GPS');
+        document.getElementById('route-origin-display').textContent=sTime?'Current GPS: '+(currentLocationAddress||origin):origin;
+        document.getElementById('route-final-destination').value=currentDestinationAddress||document.getElementById('end-loc')?.value||'';routeDraftDestinationPoint=selectedDestinationPoint;routeDraftDestinationAddress=currentDestinationAddress;
+        document.getElementById('route-new-stop').value='';renderRouteManager();updateRouteSummary();
+        document.getElementById('route-manager-modal').style.display='flex';
+    }
+
+    function manageRoute(){openRouteManager();}
+
+    function addRouteStop() {
+        const input=document.getElementById('route-new-stop'),value=input.value.trim();
+        if(!value){showToast('Enter or select a stop first.','warning');return;}
+        if(routeStops.length>=5){showToast('Maximum five intermediate stops.','warning');return;}
+        if(routeStops.some(stop=>stop.toLowerCase()===value.toLowerCase())){showToast('This stop is already in the route.','warning');return;}
+        routeStops.push(value);input.value='';renderRouteManager();updateRouteSummary();
+    }
+
+    function removeRouteStop(index){if(index<0||index>=routeStops.length)return;delete routeStopPoints[routeStops[index]];routeStops.splice(index,1);renderRouteManager();updateRouteSummary();}
+    function moveRouteStop(index,direction){const next=index+direction;if(index<0||next<0||index>=routeStops.length||next>=routeStops.length)return;[routeStops[index],routeStops[next]]=[routeStops[next],routeStops[index]];renderRouteManager();}
+    function clearManagedRoute(){routeStops=[];routeStopPoints={};renderRouteManager();updateRouteSummary();}
+
+    function updateRouteSummary() {
+        const el=document.getElementById('route-summary');if(!el)return;
+        el.textContent=estimatedDistanceMeters>0?`${routeStops.length} stop(s) · ${(estimatedDistanceMeters/1000).toFixed(2)} km road route · about ${Math.max(1,Math.round(estimatedDurationSeconds/60))} min · LKR ${estimateFareForMeters(estimatedDistanceMeters).toFixed(2)}`:'Save the route to calculate road distance and estimated fare.';
+    }
+
+    async function saveRouteManager() {
+        const input=document.getElementById('route-final-destination'),destination=input.value.trim();
+        if(!destination){showToast('Enter the final destination.','warning');return;}
+        const changed=destination!==currentDestinationAddress;currentDestinationAddress=destination;document.getElementById('end-loc').value=destination;
+        if(changed){selectedDestinationPoint=destination===routeDraftDestinationAddress&&validRoadPoint(routeDraftDestinationPoint)?routeDraftDestinationPoint:null;estimatedDistanceMeters=0;estimatedDurationSeconds=0;}
+        routeRevision++;showLoading(true);
+        try{
+            const ok=await refreshRouteEstimate(true);if(!ok)return;
+            saveRideState();await broadcastOdometerTelemetry();updateRouteSummary();
+            if(sTime)addSystemLog('INFO','Route updated',`${routeStops.length} stop(s), destination: ${destination}`);
+            showToast('Full road route saved and recalculated.','success');
+        }finally{showLoading(false);}
+    }
+
     function openPhoneNavigation() {
         const destination=currentDestinationAddress || document.getElementById('end-loc').value.trim();
         const hasGPS=Number.isFinite(currentLat)&&Number.isFinite(currentLng);
         let url;
         if(destination){
             const origin=hasGPS?`${currentLat},${currentLng}`:startLocationAddress;
-            url=`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&travelmode=driving`;
+            const waypoints=routeStops.length?`&waypoints=${encodeURIComponent(routeStops.join('|'))}`:'';
+            url=`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}${waypoints}&travelmode=driving`;
         }else if(hasGPS){
             url=`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${currentLat},${currentLng}`)}`;
         }else{showToast('Enter a destination or wait for GPS before opening the map.','warning');return;}
@@ -2389,6 +2877,7 @@ let paymentSaving=false, settingsSaving=false;
     let activeReceiptObject = null;
     function showReceipt(ride, isReprint) {
         activeReceiptObject = ride;
+        if(ride.trackingToken)publishCompletedReceipt(ride);
         document.getElementById('receiptModal').style.display = 'flex';
         const containerId = `qr-${ride.id}`;
         
@@ -2400,7 +2889,7 @@ let paymentSaving=false, settingsSaving=false;
             if (qrContainer) {
                 qrContainer.innerHTML = '';
                 try { if (typeof QRCode !== 'undefined') new QRCode(qrContainer, {
-                    text: `AMT Receipt: ${ride.id} | LKR ${Number(ride.fare).toFixed(2)}`,
+                    text: ride.trackingToken ? trackingPublicUrl(ride.trackingToken) : `AMT Receipt: ${ride.id} | LKR ${Number(ride.fare).toFixed(2)}`,
                     width: 76,
                     height: 76,
                     colorDark : "#000000",
@@ -2423,27 +2912,44 @@ let paymentSaving=false, settingsSaving=false;
         window.open(`https://api.whatsapp.com/send?phone=${activeReceiptObject.mobile}&text=${encodeURIComponent(msg)}`, '_blank');
     }
 
-    function sendEmailWithAttachment() {
+    async function receiptPdfBlob(element) {
+        if (!window.jspdf || typeof html2canvas === 'undefined') throw Error('PDF libraries are not available while offline');
+        const canvas=await html2canvas(element,{scale:2,backgroundColor:'#ffffff',useCORS:true});
+        const pageWidth=148,pageHeight=210,margin=8,maxWidth=pageWidth-margin*2,maxHeight=pageHeight-margin*2;
+        const scale=Math.min(maxWidth/canvas.width,maxHeight/canvas.height),width=canvas.width*scale,height=canvas.height*scale;
+        const doc=new window.jspdf.jsPDF({unit:'mm',format:'a5',orientation:'portrait'});
+        doc.addImage(canvas.toDataURL('image/jpeg',.92),'JPEG',(pageWidth-width)/2,margin,width,height);return doc.output('blob');
+    }
+    function downloadBlob(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1500);}
+    async function downloadElementPDF(element,name){try{downloadBlob(await receiptPdfBlob(element),name);showToast('Receipt PDF downloaded.','success');}catch(e){showToast(e.message+'. Use Print / Save as PDF.','error');}}
+    const blobBase64=blob=>new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result).split(',')[1]);r.onerror=reject;r.readAsDataURL(blob);});
+    async function sendEmailWithAttachment() {
         if (!activeReceiptObject) return;
-        const subject = `${SETTINGS.appName} - Trip Invoice`;
-        const body = `Official Trip Receipt details: \n\nReceipt Number: ${activeReceiptObject.id}\nTotal Paid: LKR ${activeReceiptObject.fare.toFixed(2)}`;
-        window.open(`mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`);
+        const name=`AMT_RECEIPT_${activeReceiptObject.id}.pdf`,subject=`${SETTINGS.appName} - Trip Receipt`,body=`Thank you for travelling with ${SETTINGS.appName}. Your paid A5 receipt ${activeReceiptObject.id} is attached. Total paid: LKR ${Number(activeReceiptObject.fare).toFixed(2)}.`,email=String(activeReceiptObject.customerEmail||'').trim();
+        try{
+            const blob=await receiptPdfBlob(document.getElementById('receipt-view'));
+            if(window.nativeMeter?.supported){await window.nativeMeter.call('sharePdf',{base64:await blobBase64(blob),name,title:subject,text:body,email});showToast('Choose your Email app; the A5 PDF is attached.','success');return;}
+            const file=new File([blob],name,{type:'application/pdf'});
+            if(navigator.share&&(!navigator.canShare||navigator.canShare({files:[file]}))){await navigator.share({title:subject,text:body,files:[file]});return;}
+            downloadBlob(blob,name);window.location.href=`mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body+'\n\nYour browser downloaded '+name+'. Please attach it before sending.')}`;
+        }catch(e){if(e.name!=='AbortError')showToast('Receipt share failed: '+e.message,'error');}
+    }
+
+    async function nativeReceiptPdf(action) {
+        const name=`AMT_RECEIPT_${activeReceiptObject.id}.pdf`,blob=await receiptPdfBlob(document.getElementById('receipt-view'));
+        return window.nativeMeter.call(action,{base64:await blobBase64(blob),name,title:`${SETTINGS.appName} receipt ${activeReceiptObject.id}`});
     }
 
     async function downloadReceiptPDF() {
-        if (!activeReceiptObject) return;
-        if (!window.jspdf || typeof html2canvas === 'undefined') { showToast('PDF libraries unavailable. Use Print / Save as PDF.', 'warning'); return; }
-        try {
-            const canvas = await html2canvas(document.getElementById('receipt-view'), { scale: 2, backgroundColor: '#ffffff' });
-            const height = canvas.height * 80 / canvas.width;
-            const doc = new window.jspdf.jsPDF({ unit:'mm', format:[80, Math.max(100,height+4)] });
-            doc.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, 80, height);
-            doc.save(`AMT_RECEIPT_${activeReceiptObject.id}.pdf`);
-        } catch(e) { showToast('PDF export failed. Use Print / Save as PDF.', 'error'); }
+        if(!activeReceiptObject)return;
+        try{if(window.nativeMeter?.supported){await nativeReceiptPdf('savePdf');showToast('Choose a folder to save the A5 PDF.','success');return;}await downloadElementPDF(document.getElementById('receipt-view'),`AMT_RECEIPT_${activeReceiptObject.id}.pdf`);}
+        catch(e){if(e.name!=='AbortError')showToast('PDF save failed: '+e.message,'error');}
     }
 
-    function printReceiptDirectly() {
-        window.print();
+    async function printReceiptDirectly() {
+        if(!activeReceiptObject)return;
+        try{if(window.nativeMeter?.supported){await nativeReceiptPdf('printPdf');return;}window.print();}
+        catch(e){showToast('Printing failed: '+e.message,'error');}
     }
 
     let trackingInterval = null;
@@ -2453,7 +2959,7 @@ let paymentSaving=false, settingsSaving=false;
             if (sTime && currentTrackingId) {
                 broadcastOdometerTelemetry();
             }
-        }, 15000); 
+        }, LIVE_TRACKING_POLL_MS);
     }
     
     function stopTrackingUpdates() {
@@ -2466,16 +2972,17 @@ let paymentSaving=false, settingsSaving=false;
     async function showTrackingPopup() {
         if (!sTime || !document.getElementById('share-location').checked) { showToast('Start a ride and enable location sharing first.', 'info'); return; }
         try {
-            if(!trackingShareToken){const result=await cloudStore.request('/track',{method:'POST',body:'{}'});trackingShareToken=result.token;currentTrackingId=result.token;saveRideState();}
+            if(!trackingShareToken){const result=await cloudStore.request('/track',{method:'POST',body:JSON.stringify({rideId:currentTrackingId||generateTrackingId()})});trackingShareToken=result.token;saveRideState();}
             await broadcastOdometerTelemetry();
-            const url=new URL(location.href);url.search='';url.hash='';url.searchParams.set('track',trackingShareToken);
-            document.getElementById('trackingLinkDisplay').textContent=url.href;
+            const url=trackingPublicUrl(trackingShareToken);
+            document.getElementById('trackingLinkDisplay').textContent=url;
             const qr=document.getElementById('trackingQR');qr.innerHTML='';
-            if(typeof QRCode!=='undefined') new QRCode(qr,{text:url.href,width:128,height:128});
+            if(typeof QRCode!=='undefined') new QRCode(qr,{text:url,width:128,height:128});
             closeM('settings-modal');
             document.getElementById('trackingPopupModal').style.display='flex';
         } catch(e) { showToast('Could not create a tracking link: '+e.message,'error'); }
     }
+    function trackingPublicUrl(token){const url=new URL(location.href);url.search='';url.hash='';url.searchParams.set('t',token);return url.href;}
     
     function closeTrackingPopup() {
         document.getElementById('trackingPopupModal').style.display = 'none';
@@ -2507,12 +3014,12 @@ let paymentSaving=false, settingsSaving=false;
 
     // ========== Passenger Portal Bootstrap ==========
     const urlParams = new URLSearchParams(window.location.search);
-    const trackingQuery = urlParams.get('track');
+    const trackingQuery = urlParams.get('t') || urlParams.get('track');
     if (trackingQuery) {
         document.getElementById('account-gate').hidden=true;
         document.getElementById('main-driver-view').classList.add('hidden');
         document.getElementById('passenger-tracking-view').classList.remove('hidden');
-        document.getElementById('track-trip-id').innerText = trackingQuery;
+        document.getElementById('track-trip-id').innerText = 'Loading…';
         
         bootstrapPassengerTrackerMap();
         listenToTelemetryStream(trackingQuery);
@@ -2521,9 +3028,7 @@ let paymentSaving=false, settingsSaving=false;
     function bootstrapPassengerTrackerMap() {
         try {
             passengerMap = L.map('tracking-map-canvas', { zoomControl: false }).setView([6.9271, 79.8612], 14);
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-                maxZoom: 19
-            }).addTo(passengerMap);
+            addFreeMapTiles(passengerMap);
             
             passengerMarker = L.marker([6.9271, 79.8612], {
                 icon: L.divIcon({
@@ -2533,13 +3038,35 @@ let paymentSaving=false, settingsSaving=false;
                     iconAnchor: [20, 20]
                 })
             }).addTo(passengerMap);
+            passengerPathLine = L.polyline([], { color: '#2563eb', weight: 5, opacity: 0.95, lineJoin: 'round', lineCap: 'round' }).addTo(passengerMap);
         } catch(e) {
             console.error('Passenger Map Initialization failed: ', e);
         }
     }
+
+    function movePassengerMarkerSmooth(lat, lng) {
+        lat=Number(lat);lng=Number(lng);
+        if(!passengerMarker||!passengerMap||!Number.isFinite(lat)||!Number.isFinite(lng)||Math.abs(lat)>90||Math.abs(lng)>180)return;
+        const target=L.latLng(lat,lng);
+        if(!passengerHasFix){
+            passengerHasFix=true;passengerMarker.setLatLng(target);passengerMap.setView(target,16);
+            return;
+        }
+        const start=passengerMarker.getLatLng(),started=performance.now();
+        if(passengerAnimationFrame)cancelAnimationFrame(passengerAnimationFrame);
+        const animate=now=>{
+            const progress=Math.min(1,(now-started)/LIVE_TRACKING_ANIMATION_MS);
+            const eased=1-Math.pow(1-progress,3);
+            const point=L.latLng(start.lat+(target.lat-start.lat)*eased,start.lng+(target.lng-start.lng)*eased);
+            passengerMarker.setLatLng(point);
+            if(!passengerMap.getBounds().pad(-0.22).contains(point))passengerMap.panTo(point,{animate:true,duration:0.8});
+            if(progress<1)passengerAnimationFrame=requestAnimationFrame(animate);else passengerAnimationFrame=null;
+        };
+        passengerAnimationFrame=requestAnimationFrame(animate);
+    }
     
     function listenToTelemetryStream(trackingId) {
-        if (!/^[a-f0-9]{64}$/.test(trackingId)) { document.getElementById('track-status').textContent='Invalid tracking link'; return; }
+        if (!/^(?:[A-Za-z0-9_-]{24}|[a-f0-9]{64})$/.test(trackingId)) { document.getElementById('track-status').textContent='Invalid tracking link'; return; }
         let stopped=false;
         async function poll(){
             if(stopped)return;
@@ -2547,17 +3074,22 @@ let paymentSaving=false, settingsSaving=false;
                 const payload=await cloudStore.request('/track/'+trackingId);
                 if(payload.status==='waiting'){document.getElementById('track-status').textContent='Waiting for driver GPS';return;}
                 latestPassengerPayload=payload;
-                if(passengerMarker&&passengerMap){passengerMarker.setLatLng([payload.lat,payload.lng]);passengerMap.setView([payload.lat,payload.lng]);}
-                document.getElementById('track-pickup-location').textContent='Address hidden';
-                document.getElementById('track-destination').textContent='Address hidden';
+                document.getElementById('track-trip-id').textContent=payload.rideId||payload.receipt?.id||'Taxi ride';
+                if(passengerPathLine&&Array.isArray(payload.path))passengerPathLine.setLatLngs(payload.path);
+                movePassengerMarkerSmooth(payload.lat,payload.lng);
+                document.getElementById('track-pickup-location').textContent='Live GPS shown on map';
+                document.getElementById('track-destination').textContent=payload.route?.destination||payload.receipt?.to||'Destination not shared';
+                const stops=Array.isArray(payload.route?.stops)?payload.route.stops:(Array.isArray(payload.receipt?.stops)?payload.receipt.stops:[]),stopsRow=document.getElementById('track-stops-row');
+                stopsRow.classList.toggle('hidden',!stops.length);document.getElementById('track-route-stops').textContent=stops.map((stop,index)=>`${index+1}. ${stop}`).join(' → ');
                 document.getElementById('track-est-fare').textContent='LKR '+payload.currentFare.toFixed(2);
                 document.getElementById('track-est-distance').textContent=payload.distanceTraveled+' km';
                 document.getElementById('track-ride-mode').textContent=String(payload.mode||'ride').toUpperCase()+' Mode';
                 document.getElementById('track-last-update').textContent=new Date(payload.timestamp).toLocaleTimeString();
                 document.getElementById('track-status').textContent=payload.status==='completed'?'Trip completed':'Live ride';
-                if(payload.status==='completed'){stopped=true;document.getElementById('passenger-pdf-btn').classList.remove('hidden');}
+                if(payload.status==='completed'&&payload.receipt){stopped=true;document.getElementById('passenger-pdf-btn').classList.remove('hidden');const view=document.getElementById('passenger-receipt-view');view.classList.remove('hidden');const business=payload.receipt.business||{};view.innerHTML=getPerfectReceiptTemplateHTML({...payload.receipt,tariff:{...SETTINGS,...business},mobile:''},false,'passenger-receipt-qr');setTimeout(()=>{const q=document.getElementById('passenger-receipt-qr');if(q&&typeof QRCode!=='undefined')new QRCode(q,{text:location.href,width:76,height:76});},50);}
+                else if(payload.status==='completed'){document.getElementById('track-status').textContent='Payment is being finalized';}
             } catch(e) {document.getElementById('track-status').textContent=e.message;if(e.status===404)stopped=true;}
-            finally {if(!stopped)setTimeout(poll,15000);}
+            finally {if(!stopped)setTimeout(poll,LIVE_TRACKING_POLL_MS);}
         }
         poll();
     }
@@ -2710,14 +3242,10 @@ let paymentSaving=false, settingsSaving=false;
         document.body.classList.add('printing-report');window.print();
         document.body.classList.remove('printing-report');summary.remove();
     }
-    function downloadPassengerReceiptPDF() {
+    async function downloadPassengerReceiptPDF() {
         const p=latestPassengerPayload;
-        if (!p || p.status !== 'completed') return;
-        if (!window.jspdf) { showToast('PDF unavailable. Try again when connected to the internet.', 'warning'); return; }
-        const doc=new window.jspdf.jsPDF();
-        doc.setFontSize(18);doc.text('Taxi Trip Summary',14,22);doc.setFontSize(11);
-        doc.text([`Tracking ID: ${p.id}`,`Distance: ${p.distanceTraveled} km`,`Fare: LKR ${Number(p.currentFare).toFixed(2)}`,`Completed: ${new Date(p.timestamp).toLocaleString()}`,'','This summary does not confirm payment.','Ask the driver for your payment receipt.'],14,35);
-        doc.save('taxi-trip-summary.pdf');
+        if (!p?.receipt) return;
+        await downloadElementPDF(document.getElementById('passenger-receipt-view'),`RECEIPT_${p.receipt.id}.pdf`);
     }
     function updateMobileViewport() {
         const viewport=window.visualViewport;
